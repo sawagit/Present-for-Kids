@@ -1,0 +1,5 @@
+{"type":"FeatureCollection","metadata":{"generated":1794120000000,"count":3},"features":[
+{"type":"Feature","properties":{"mag":6.4,"place":"120 km SSW of Example, Indonesia","time":1794100000000,"updated":1794110000000,"url":"https://earthquake.usgs.gov/earthquakes/eventpage/us7000abcd","felt":12,"alert":"yellow","status":"reviewed","tsunami":0,"sig":630,"type":"earthquake","title":"M 6.4 - 120 km SSW of Example, Indonesia"},"geometry":{"type":"Point","coordinates":[110.123456,-8.98765,35.2]},"id":"us7000abcd"},
+{"type":"Feature","properties":{"mag":4.6,"place":"Mid-Atlantic Ridge","time":1794090000000,"updated":1794090500000,"url":"https://earthquake.usgs.gov/earthquakes/eventpage/us7000abce","alert":null,"status":"automatic","tsunami":0,"sig":326,"type":"earthquake","title":"M 4.6 - Mid-Atlantic Ridge"},"geometry":{"type":"Point","coordinates":[-30.5,10.2,10.0]},"id":"us7000abce"},
+{"type":"Feature","properties":{"mag":4.5,"place":"Somewhere","time":1794080000000,"url":"https://example.org/x","type":"quarry blast","title":"M 4.5 quarry"},"geometry":{"type":"Point","coordinates":[0,0,0]},"id":"blast1"}
+]}
