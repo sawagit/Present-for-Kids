@@ -76,6 +76,11 @@ def update_status(data_dir: Path, results: dict) -> None:
     status = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
     for source, res in results.items():
         prev = status.get(source, {})
+        if res.get("skipped") and prev:
+            # Keep the history of a source that is only paused.
+            entry = dict(prev, skipped=res["skipped"], finished_at=res["finished_at"])
+            status[source] = entry
+            continue
         entry = dict(res)
         # Remember the last success even when this run failed.
         entry["last_success"] = res["finished_at"] if res["ok"] else prev.get("last_success")

@@ -1,10 +1,9 @@
 """ReliefWeb reports (UN OCHA; humanitarian situation reports, news, appeals).
 
 API v2: https://apidoc.reliefweb.int/
-ReliefWeb asks every client to send an `appname`, and new apps must be
-approved by ReliefWeb (request form linked from the API docs). Set the
-approved name in the RELIEFWEB_APPNAME secret. Without it we still try with
-our default name so the verification job shows what the API answers.
+ReliefWeb only answers requests with an approved `appname` (request form:
+https://apidoc.reliefweb.int/parameters#appname). Put the approved name in
+the RELIEFWEB_APPNAME secret. Until then this source is skipped, not failed.
 
 We store title, metadata and link only, never the report body (copyright:
 each publishing organisation sets its own terms).
@@ -23,7 +22,6 @@ NAME = "reliefweb"
 KIND = "events"
 CADENCE = "daily"
 API_URL = "https://api.reliefweb.int/v2/reports?appname={appname}"
-DEFAULT_APPNAME = "present-for-kids"
 PAGE = 500  # API maximum per call; enough for one day
 
 SKIP_FORMATS = {"Map", "Infographic", "Manual and Guideline", "Interactive"}
@@ -125,12 +123,10 @@ def query(since: datetime) -> dict:
 
 
 def fetch(ctx) -> list[dict]:
-    appname = os.environ.get("RELIEFWEB_APPNAME") or DEFAULT_APPNAME
+    appname = os.environ.get("RELIEFWEB_APPNAME")
+    if not appname:
+        raise http.SourceSkipped(
+            "RELIEFWEB_APPNAME is not set. ReliefWeb only answers approved appnames: "
+            "request one at https://apidoc.reliefweb.int/parameters#appname")
     since = datetime.now(timezone.utc) - timedelta(hours=ctx.lookback_hours)
-    try:
-        doc = http.post_json(API_URL.format(appname=appname), query(since))
-    except http.FetchError as e:
-        hint = "" if os.environ.get("RELIEFWEB_APPNAME") else (
-            " (RELIEFWEB_APPNAME is not set: ReliefWeb may require an approved appname)")
-        raise http.FetchError(f"{e}{hint}") from None
-    return parse(doc)
+    return parse(http.post_json(API_URL.format(appname=appname), query(since)))

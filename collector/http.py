@@ -14,6 +14,10 @@ class FetchError(RuntimeError):
     pass
 
 
+class SourceSkipped(RuntimeError):
+    """A source is not configured yet (e.g. missing API key). Not a failure."""
+
+
 def get(url: str, *, timeout: int = 60, retries: int = 3, data: bytes | None = None,
         headers: dict | None = None) -> bytes:
     hdrs = {"User-Agent": USER_AGENT, "Accept": "*/*"}

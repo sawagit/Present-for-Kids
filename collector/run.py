@@ -22,6 +22,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from . import store
+from .http import SourceSkipped
 from .schema import iso_utc
 from .sources import SOURCES
 
@@ -34,7 +35,8 @@ class Context:
 
 def run_source(mod, ctx: Context) -> tuple[list[dict], dict]:
     started = time.monotonic()
-    res = {"ok": False, "kind": mod.KIND, "cadence": mod.CADENCE, "count": 0, "error": None}
+    res = {"ok": False, "kind": mod.KIND, "cadence": mod.CADENCE, "count": 0, "error": None,
+           "skipped": None}
     records: list[dict] = []
     try:
         records = mod.fetch(ctx)
@@ -47,6 +49,8 @@ def run_source(mod, ctx: Context) -> tuple[list[dict], dict]:
             if records:
                 times = sorted(r["occurred_at"] for r in records)
                 res["oldest"], res["newest"] = times[0], times[-1]
+    except SourceSkipped as e:
+        res["skipped"] = str(e)
     except Exception as e:  # noqa: BLE001 - isolate every source
         res["error"] = f"{type(e).__name__}: {e}"[:500]
         traceback.print_exc()
@@ -65,8 +69,8 @@ def summary_markdown(results: dict, dry_run: bool) -> str:
     for name, r in results.items():
         nu = f"{r.get('new', '-')} / {r.get('updated', '-')}"
         lines.append(
-            f"| {name} | {'✅' if r['ok'] else '❌'} | {r['count']} | {r.get('with_coords', '-')} "
-            f"| {nu} | {r.get('newest', '-')} | {r['seconds']} | {(r['error'] or '').replace('|', '/')} |"
+            f"| {name} | {'✅' if r['ok'] else ('⏸️ skipped' if r['skipped'] else '❌')} | {r['count']} | {r.get('with_coords', '-')} "
+            f"| {nu} | {r.get('newest', '-')} | {r['seconds']} | {(r['error'] or r['skipped'] or '').replace('|', '/')} |"
         )
     cats = Counter()
     for r in results.values():
@@ -123,7 +127,7 @@ def main(argv=None) -> int:
         with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as fh:
             fh.write(md)
 
-    failed = [n for n, r in results.items() if not r["ok"]]
+    failed = [n for n, r in results.items() if not r["ok"] and not r["skipped"]]
     return 1 if (failed and args.strict) else 0
 
 

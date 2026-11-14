@@ -105,6 +105,15 @@ class ReliefwebTest(unittest.TestCase):
         self.assertEqual(q["filter"]["value"]["from"], "2026-11-07T00:00:00+00:00")
 
 
+class ReliefwebSkipTest(unittest.TestCase):
+    def test_skipped_without_appname_is_not_a_failure(self):
+        with tempfile.TemporaryDirectory() as d, mock.patch.dict("os.environ", {}, clear=True):
+            code = run.main(["--sources", "reliefweb", "--out", d, "--strict"])
+            status = json.loads((Path(d) / "status.json").read_text())
+        self.assertEqual(code, 0)
+        self.assertIn("RELIEFWEB_APPNAME", status["reliefweb"]["skipped"])
+
+
 class UnhcrTest(unittest.TestCase):
     def test_parse(self):
         inds = unhcr.parse(load("unhcr.json")["items"], 2025)
