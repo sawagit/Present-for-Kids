@@ -1,0 +1,88 @@
+{
+  "gdacs": {
+    "by_category": {
+      "disaster_climate": 100
+    },
+    "by_direction": {
+      "worsening": 100
+    },
+    "cadence": "hourly",
+    "count": 100,
+    "error": null,
+    "finished_at": "2026-11-14T23:24:32Z",
+    "kind": "events",
+    "last_success": "2026-11-14T23:24:32Z",
+    "new": 100,
+    "newest": "2026-11-14T22:23:46Z",
+    "ok": true,
+    "oldest": "2026-10-24T01:00:00Z",
+    "seconds": 1.1,
+    "skipped": null,
+    "updated": 0,
+    "with_coords": 100
+  },
+  "gdelt": {
+    "by_category": {
+      "conflict_security": 109,
+      "culture_society": 7,
+      "economy_inequality": 53,
+      "human_rights": 62,
+      "politics_governance": 69
+    },
+    "by_direction": {
+      "improving": 122,
+      "turning_point": 4,
+      "worsening": 174
+    },
+    "cadence": "daily",
+    "count": 300,
+    "error": null,
+    "finished_at": "2026-11-14T23:24:38Z",
+    "kind": "events",
+    "last_success": "2026-11-14T23:24:38Z",
+    "new": 300,
+    "newest": "2026-11-14T00:00:00Z",
+    "ok": true,
+    "oldest": "2025-11-14T00:00:00Z",
+    "seconds": 5.8,
+    "skipped": null,
+    "updated": 0,
+    "with_coords": 300
+  },
+  "unhcr": {
+    "cadence": "weekly",
+    "count": 1257,
+    "error": null,
+    "finished_at": "2026-11-14T23:24:39Z",
+    "kind": "indicators",
+    "last_success": "2026-11-14T23:24:39Z",
+    "ok": true,
+    "periods": [
+      "2025"
+    ],
+    "seconds": 0.9,
+    "skipped": null
+  },
+  "usgs": {
+    "by_category": {
+      "disaster_climate": 19
+    },
+    "by_direction": {
+      "worsening": 19
+    },
+    "cadence": "hourly",
+    "count": 19,
+    "error": null,
+    "finished_at": "2026-11-14T23:24:31Z",
+    "kind": "events",
+    "last_success": "2026-11-14T23:24:31Z",
+    "new": 19,
+    "newest": "2026-11-14T22:23:46Z",
+    "ok": true,
+    "oldest": "2026-11-13T23:30:38Z",
+    "seconds": 0.1,
+    "skipped": null,
+    "updated": 0,
+    "with_coords": 19
+  }
+}
