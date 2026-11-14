@@ -1,0 +1,78 @@
+# Scheduled collection. Commits the refreshed JSON under data/ to main.
+#   hourly : usgs, gdacs          (disasters change fast)
+#   daily  : gdelt (96 x 15 min), reliefweb
+#   weekly : unhcr                (annual statistics)
+# If any source fails, the run still saves the others, then turns red so
+# GitHub emails the repository owner.
+name: collect
+
+on:
+  schedule:
+    - cron: "17 * * * *"
+    - cron: "40 1 * * *"
+    - cron: "25 3 * * 1"
+  workflow_dispatch:
+    inputs:
+      sources:
+        description: "comma separated (usgs,gdacs,gdelt,reliefweb,unhcr)"
+        required: true
+        default: "usgs,gdacs"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: collect
+  cancel-in-progress: false
+
+jobs:
+  collect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Pick sources
+        id: pick
+        env:
+          SCHEDULE: ${{ github.event.schedule }}
+          SOURCES: ${{ inputs.sources }}
+        run: |
+          case "$SCHEDULE" in
+            "17 * * * *") echo "args=--cadence hourly" >> "$GITHUB_OUTPUT" ;;
+            "40 1 * * *") echo "args=--cadence daily --gdelt-slices 96" >> "$GITHUB_OUTPUT" ;;
+            "25 3 * * 1") echo "args=--cadence weekly" >> "$GITHUB_OUTPUT" ;;
+            *)            [[ "$SOURCES" =~ ^[a-z,]+$ ]] || { echo "bad sources: $SOURCES"; exit 1; }
+                          echo "args=--sources $SOURCES --gdelt-slices 96" >> "$GITHUB_OUTPUT" ;;
+          esac
+
+      - name: Collect
+        id: collect
+        continue-on-error: true
+        env:
+          RELIEFWEB_APPNAME: ${{ secrets.RELIEFWEB_APPNAME }}
+        run: python -m collector.run ${{ steps.pick.outputs.args }} --out data --strict
+
+      - name: Commit data
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data
+          if git diff --cached --quiet; then
+            echo "no data changes"; exit 0
+          fi
+          git commit -m "data: ${{ steps.pick.outputs.args }} $(date -u +%Y-%m-%dT%H:%MZ)"
+          for i in 1 2 3 4; do
+            git pull --rebase --quiet origin "${GITHUB_REF_NAME}" && git push origin "HEAD:${GITHUB_REF_NAME}" && exit 0
+            sleep $((i * 5))
+          done
+          exit 1
+
+      - name: Fail if a source failed
+        if: steps.collect.outcome == 'failure'
+        run: |
+          echo "::error::At least one source failed. See data/status.json and the Collect step log."
+          exit 1
