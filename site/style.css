@@ -1,0 +1,207 @@
+/* 見た目の設定。
+   色はすべて「役割」の名前(--surface-1 = 背景、--text-primary = 本文の文字 など)で定義し、
+   ダークモードではここ(:root の下の2か所)だけを差し替える。本体は役割名だけを使う。
+   --c1〜--c8 は分野の色。色覚の多様性に配慮して検証済みの8色パレットを、決まった順番で使う。
+   ダークモードの色は単純な反転ではなく、暗い背景で見やすいよう段階を選び直したもの。 */
+:root {
+  color-scheme: light;
+  --surface-0: #f4f3ef;
+  --surface-1: #fcfcfb;
+  --surface-2: #ebeae5;
+  --border: #d9d7d0;
+  --text-primary: #0b0b0b;
+  --text-secondary: #52514e;
+  --text-muted: #6d6c67;
+  --accent: #256abf;
+  --ocean: #e6edf3;
+  --land: #f7f6f2;
+  --land-line: #c9c7bf;
+  /* 避難者数の塗り分け(少→多の5段階)。分野の色と混ざらないよう色相のない灰色にした */
+  --choro-1: #e4e3de; --choro-2: #c9c7c0; --choro-3: #a3a19a; --choro-4: #7a7872; --choro-5: #55534e;
+  --c1: #2a78d6; --c2: #eb6834; --c3: #1baf7a; --c4: #eda100;
+  --c5: #e87ba4; --c6: #008300; --c7: #6250d6; --c8: #e34948;
+  --brush: rgba(37, 106, 191, 0.12);
+  --shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
+}
+/* OS がダークモードのとき。data-theme="light" で明示的にライトにした場合は除く */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --surface-0: #121211;
+    --surface-1: #1a1a19;
+    --surface-2: #262624;
+    --border: #383835;
+    --text-primary: #f0efec;
+    --text-secondary: #c3c2b7;
+    --text-muted: #9a998f;
+    --accent: #5598e7;
+    --ocean: #151a20;
+    --land: #2a2a28;
+    --land-line: #45453f;
+    --choro-1: #3a3a37; --choro-2: #55544f; --choro-3: #77766f; --choro-4: #a09f97; --choro-5: #cfcec6;
+    --c1: #3987e5; --c2: #d95926; --c3: #199e70; --c4: #c98500;
+    --c5: #d55181; --c6: #0ca30c; --c7: #9085e9; --c8: #e66767;
+    --brush: rgba(85, 152, 231, 0.18);
+    --shadow: 0 1px 3px rgba(0, 0, 0, 0.5);
+  }
+}
+/* 将来の切り替えボタン用: data-theme="dark" で明示的にダークにしたとき(上と同じ値) */
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --surface-0: #121211;
+  --surface-1: #1a1a19;
+  --surface-2: #262624;
+  --border: #383835;
+  --text-primary: #f0efec;
+  --text-secondary: #c3c2b7;
+  --text-muted: #9a998f;
+  --accent: #5598e7;
+  --ocean: #151a20;
+  --land: #2a2a28;
+  --land-line: #45453f;
+  --choro-1: #3a3a37; --choro-2: #55544f; --choro-3: #77766f; --choro-4: #a09f97; --choro-5: #cfcec6;
+  --c1: #3987e5; --c2: #d95926; --c3: #199e70; --c4: #c98500;
+  --c5: #d55181; --c6: #0ca30c; --c7: #9085e9; --c8: #e66767;
+  --brush: rgba(85, 152, 231, 0.18);
+  --shadow: 0 1px 3px rgba(0, 0, 0, 0.5);
+}
+
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body {
+  background: var(--surface-0);
+  color: var(--text-primary);
+  font: 15px/1.6 system-ui, -apple-system, "Hiragino Sans", "Noto Sans JP", "Yu Gothic UI", sans-serif;
+}
+button { font: inherit; color: inherit; }
+h1, h2 { margin: 0; }
+h2 { font-size: 15px; font-weight: 600; }
+.muted { color: var(--text-muted); font-size: 13px; }
+.hint { color: var(--text-muted); font-size: 12.5px; margin: 2px 0 8px; }
+
+.top {
+  display: flex; align-items: center; justify-content: space-between; gap: 16px;
+  padding: 12px 20px; border-bottom: 1px solid var(--border); background: var(--surface-1);
+}
+.brand h1 { font-size: 20px; letter-spacing: 0.01em; }
+.tagline { margin: 0; color: var(--text-secondary); font-size: 13.5px; }
+.lang { display: flex; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; flex-shrink: 0; }
+.lang button { border: 0; background: transparent; padding: 6px 12px; cursor: pointer; font-size: 13px; }
+.lang button[aria-pressed="true"] { background: var(--surface-2); font-weight: 600; }
+
+/* 画面の配置(PC): 左上に地図、左下にタイムライン、右に縦長のパネル */
+.layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 360px;
+  grid-template-rows: minmax(420px, 62vh) auto;
+  grid-template-areas: "map panel" "timeline panel";
+  gap: 12px; padding: 12px 20px;
+}
+.map-wrap { grid-area: map; position: relative; border-radius: 10px; overflow: hidden; border: 1px solid var(--border); background: var(--ocean); }
+#map { position: absolute; inset: 0; }
+.panel {
+  grid-area: panel; background: var(--surface-1); border: 1px solid var(--border); border-radius: 10px;
+  padding: 14px; display: flex; flex-direction: column; min-height: 0; max-height: calc(62vh + 300px); overflow: hidden;
+}
+.timeline-wrap { grid-area: timeline; display: flex; flex-direction: column; background: var(--surface-1); border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px 4px; }
+
+.map-note {
+  position: absolute; left: 12px; top: 12px; max-width: 70%; background: var(--surface-1); color: var(--text-secondary);
+  border: 1px solid var(--border); border-radius: 8px; padding: 8px 12px; font-size: 13px; box-shadow: var(--shadow);
+}
+.choro-legend {
+  position: absolute; left: 12px; bottom: 28px; background: var(--surface-1); border: 1px solid var(--border);
+  border-radius: 8px; padding: 8px 10px; font-size: 12px; color: var(--text-secondary); box-shadow: var(--shadow);
+}
+.choro-legend .ramp { display: flex; gap: 2px; margin-top: 4px; }
+.choro-legend .ramp span { display: flex; flex-direction: column; align-items: flex-start; font-size: 11px; color: var(--text-muted); }
+.choro-legend .ramp i { display: block; width: 40px; height: 10px; border-radius: 2px; }
+
+.summary { font-size: 14px; color: var(--text-secondary); margin-bottom: 10px; }
+.summary strong { color: var(--text-primary); font-size: 22px; font-weight: 650; margin-right: 4px; }
+.filters { border: 0; margin: 0 0 10px; padding: 0; }
+.filters legend { font-size: 12.5px; color: var(--text-muted); padding: 0; margin-bottom: 6px; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip {
+  display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--border); background: var(--surface-1);
+  border-radius: 999px; padding: 3px 10px 3px 8px; font-size: 13px; cursor: pointer; line-height: 1.5;
+}
+/* オフにした絞り込みボタンは薄くし、色の丸も輪郭だけにする(色だけに頼らずオン/オフが分かるように) */
+.chip[aria-pressed="false"] { opacity: 0.45; }
+.chip[aria-pressed="false"] .dot { background: transparent !important; }
+.chip .n { color: var(--text-muted); font-variant-numeric: tabular-nums; }
+.dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; border: 2px solid currentColor; }
+.toggles label { display: flex; gap: 6px; align-items: center; font-size: 13.5px; cursor: pointer; }
+
+.list-head { display: flex; align-items: baseline; justify-content: space-between; border-top: 1px solid var(--border); padding-top: 10px; margin-bottom: 4px; }
+.event-list { list-style: none; margin: 0; padding: 0; overflow-y: auto; flex: 1; min-height: 120px; }
+.event-list li { border-bottom: 1px solid var(--border); }
+.event-list button {
+  display: grid; grid-template-columns: 12px 1fr; gap: 4px 8px; width: 100%; text-align: left;
+  border: 0; background: transparent; padding: 8px 4px; cursor: pointer;
+}
+.event-list button:hover, .event-list button:focus-visible { background: var(--surface-2); }
+.event-list .dot { margin-top: 5px; }
+.ev-title { font-size: 13.5px; font-weight: 550; }
+.ev-meta { grid-column: 2; font-size: 12px; color: var(--text-muted); }
+.ev-orig { grid-column: 2; font-size: 12px; color: var(--text-secondary); }
+.dir { font-size: 12px; white-space: nowrap; }
+.more { color: var(--text-muted); font-size: 12.5px; padding: 8px 4px; }
+
+.timeline-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+.ranges { display: flex; gap: 4px; }
+.ranges button {
+  border: 1px solid var(--border); background: transparent; border-radius: 6px; padding: 2px 10px; font-size: 12.5px; cursor: pointer;
+}
+.ranges button[aria-pressed="true"] { background: var(--surface-2); font-weight: 600; }
+/* touch-action: none = スマホでグラフをなぞったときにページがスクロールせず、期間選択になるようにする */
+.timeline { flex: 1; height: 150px; min-height: 150px; max-height: 260px; position: relative; user-select: none; touch-action: none; }
+.timeline svg { display: block; width: 100%; height: 100%; }
+.timeline .axis text { fill: var(--text-muted); font-size: 11px; }
+.timeline .grid line { stroke: var(--border); }
+.timeline .brush { fill: var(--brush); stroke: var(--accent); stroke-width: 1; }
+.timeline .hover-col { fill: var(--text-primary); opacity: 0.06; }
+
+.foot { padding: 4px 20px 24px; color: var(--text-secondary); font-size: 13px; }
+.foot p { max-width: 900px; }
+.status { display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: 12.5px; color: var(--text-muted); }
+.status .bad { color: var(--text-primary); }
+.credits { font-size: 12px; color: var(--text-muted); }
+.credits a, .popup a { color: var(--accent); }
+
+.tooltip {
+  position: fixed; z-index: 10; pointer-events: none; background: var(--surface-1); color: var(--text-primary);
+  border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; font-size: 12.5px; box-shadow: var(--shadow); min-width: 160px;
+}
+.tooltip .row { display: flex; align-items: center; gap: 6px; justify-content: space-between; }
+.tooltip .row span:first-child { display: flex; align-items: center; gap: 6px; }
+.tooltip .dot { width: 8px; height: 8px; }
+
+/* 地図のポップアップ(MapLibre の既定の見た目を、サイトの色に合わせて上書き) */
+.maplibregl-popup-content { background: var(--surface-1); color: var(--text-primary); border-radius: 10px; padding: 10px 12px; box-shadow: var(--shadow); max-width: 320px; }
+.maplibregl-popup-tip { display: none; }
+.maplibregl-popup-close-button { color: var(--text-muted); font-size: 18px; }
+.popup .pi { padding: 6px 0; border-bottom: 1px solid var(--border); }
+.popup .pi:last-child { border-bottom: 0; }
+.popup .pt { font-weight: 600; font-size: 13.5px; display: flex; gap: 6px; align-items: center; }
+.popup .pm { font-size: 12px; color: var(--text-muted); }
+.popup .po { font-size: 12px; color: var(--text-secondary); }
+.maplibregl-ctrl-attrib { font-size: 11px; }
+
+/* スマホ・狭い画面: 地図 → タイムライン → パネルの順に縦に並べる */
+@media (max-width: 900px) {
+  .top { padding: 10px 16px; }
+  .layout {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: 58vh auto auto;
+    grid-template-areas: "map" "timeline" "panel";
+    padding: 10px 16px;
+  }
+  .panel { max-height: none; }
+  .event-list { max-height: 60vh; }
+  .foot { padding: 4px 16px 24px; }
+}
+/* Windows のハイコントラスト表示でも分野の色の丸が消えないようにする */
+@media (forced-colors: active) {
+  .dot { forced-color-adjust: none; }
+}

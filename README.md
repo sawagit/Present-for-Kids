@@ -6,7 +6,7 @@ A non-profit site that shows how the world's crises (conflict, disasters, human 
 
 ## 現在の段階 / Status
 
-Phase 0: データ収集の基盤。サーバーとデータベースを持たず、GitHub Actions が公開データを取得して `data/` に静的 JSON として保存します(月額 0 円)。AI による分類・日英要約・因果リンク抽出は次の段階です。
+Phase 0: データ収集の基盤(完了)。Phase 1: 地図とタイムラインの表示(`site/`)。サーバーとデータベースを持たず、GitHub Actions が公開データを取得して `data/` に静的 JSON として保存します(月額 0 円)。AI による分類・日英要約・因果リンク抽出は次の段階です。
 
 Phase 0: the collection pipeline. No server, no database: GitHub Actions fetches open data and commits static JSON under `data/`. AI classification, Japanese/English summaries and cause-effect links come next.
 
@@ -48,6 +48,20 @@ Event の主なフィールド / main Event fields (see `collector/schema.py`):
 - `schema`: 形式のバージョン。2 で `region` / `subregion` を追加し、GDELT の `id` を「日付・種類・場所」から作る安定した値に変更(日次の再取得で重複しない)。古いファイルは次の収集時に自動で更新されます / version 2 adds region fields and stable GDELT ids; stored files are upgraded automatically on the next run
 
 国と地域の対応表は `collector/countries.json`(ISO 3166、GDELT が使う FIPS 10-4、国連 M49 地域、CLDR の日英国名)。`tools/build_countries.py` で再生成します。
+
+## サイト / Site (Phase 1)
+
+`site/` は収集データを世界地図と日ごとのタイムラインで見せる静的サイトです(フレームワークなし、[MapLibre GL JS](https://maplibre.org/) を同梱)。分野・向き(悪化/改善/転換点)・期間で絞り込めます。報道からの機械抽出(GDELT)は輪郭だけの点で示し、非表示にもできます。UNHCR の避難者数(出身国別)で国を塗り分ける表示もあります。日本語と英語に対応しています。
+
+`site/` is a static viewer: a world map and a daily timeline of the collected events, filterable by category, direction and period, in Japanese and English. No framework; MapLibre GL JS and a Natural Earth country outline (public domain) are vendored, so no third-party CDN or tile server is contacted.
+
+```sh
+python scripts/build_site.py               # site/ + data/ + data/manifest.json -> _site/
+python -m http.server -d _site 8000        # http://localhost:8000
+```
+
+`.github/workflows/pages.yml` が収集のたびに GitHub Pages へ公開します。初回だけ Settings > Pages の Source を「GitHub Actions」にしてください。
+`.github/workflows/pages.yml` publishes to GitHub Pages after every collection run. One-time setup: Settings > Pages > Source: "GitHub Actions".
 
 ## 動かし方 / Running locally
 
