@@ -21,7 +21,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 
-from . import store
+from . import analysis, store
 from .http import SourceSkipped
 from .schema import iso_utc
 from .sources import SOURCES
@@ -41,6 +41,8 @@ def run_source(mod, ctx: Context) -> tuple[list[dict], dict]:
     try:
         records = mod.fetch(ctx)
         res["ok"] = True
+        if getattr(mod, "LAST_STATS", None):
+            res["stats"] = dict(mod.LAST_STATS)
         res["count"] = len(records)
         if mod.KIND == "events":
             res["by_category"] = dict(Counter(r["category"] for r in records))
@@ -106,6 +108,9 @@ def main(argv=None) -> int:
     ctx = Context(gdelt_slices=args.gdelt_slices, lookback_hours=args.lookback_hours)
     data_dir = Path(args.out)
     results = {}
+    if not args.dry_run:
+        up = store.upgrade_all(data_dir)
+        print(f"--- upgrade stored events: {up}", file=sys.stderr)
     for name in names:
         mod = SOURCES[name]
         print(f"--- {name}", file=sys.stderr)
@@ -120,6 +125,10 @@ def main(argv=None) -> int:
 
     if not args.dry_run:
         store.update_status(data_dir, results)
+        try:
+            print(f"--- analysis: {analysis.build(data_dir)}", file=sys.stderr)
+        except Exception:  # noqa: BLE001 - never lose the collected data over this
+            traceback.print_exc()
 
     md = summary_markdown(results, args.dry_run)
     print(md)

@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import sys
 
-from .. import http
+from .. import geo, http
 from ..schema import from_epoch_ms, make_event
 
 NAME = "usgs"
@@ -57,6 +57,7 @@ def parse(doc: dict) -> list[dict]:
                 lat=coords[1],
                 lon=coords[0],
                 place=place,
+                country_iso3=geo.iso3_from_place(place),
                 severity_level=_level(mag, alert),
                 severity_value=mag,
                 severity_unit="magnitude",

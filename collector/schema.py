@@ -19,7 +19,13 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-SCHEMA_VERSION = 1
+from . import geo
+
+# 2 (2026-11-15): location.region / location.subregion added (UN M49 names),
+#   country_iso3 filled for GDELT and USGS, stable GDELT ids. Only additions:
+#   readers of version 1 keep working. Older files are upgraded in place by
+#   upgrade_event() the next time the collector runs.
+SCHEMA_VERSION = 2
 
 # Layer 1 categories, all treated equally (decision 2026-11-01).
 CATEGORIES = (
@@ -93,6 +99,7 @@ def make_event(
     updated_at: str | None = None,
     attrs: dict | None = None,
 ) -> dict:
+    region, subregion = geo.regions(country_iso3)
     ev = {
         "id": f"{source}:{source_id}",
         "schema": SCHEMA_VERSION,
@@ -111,6 +118,8 @@ def make_event(
             "lon": round_coord(lon),
             "place": place,
             "country_iso3": country_iso3,
+            "region": region,          # M49 region, e.g. "Africa"
+            "subregion": subregion,    # M49 subregion, e.g. "Eastern Africa"
         },
         "severity": {
             "level": severity_level,
@@ -122,6 +131,27 @@ def make_event(
         "attrs": attrs or {},
     }
     validate_event(ev)
+    return ev
+
+
+def upgrade_event(ev: dict) -> dict:
+    """Bring a stored event up to SCHEMA_VERSION (idempotent, never drops data)."""
+    if ev.get("schema", 1) >= SCHEMA_VERSION:
+        return ev
+    loc = ev["location"]
+    iso3 = loc.get("country_iso3")
+    if not iso3 and ev["source"] == "gdelt":
+        iso3 = geo.iso3_from_fips(ev["attrs"].get("country_fips"))
+    if not iso3 and ev["source"] == "usgs":
+        iso3 = geo.iso3_from_place(loc.get("place"))
+    loc["country_iso3"] = iso3
+    loc["region"], loc["subregion"] = geo.regions(iso3)
+    if ev["source"] == "gdelt":
+        from .sources import gdelt  # local import: sources import this module
+        sid = gdelt.stable_id(ev["attrs"].get("cameo_code", "")[:3], loc.get("place") or "",
+                              ev["occurred_at"][:10].replace("-", ""))
+        ev["id"], ev["source_id"] = f"gdelt:{sid}", sid
+    ev["schema"] = SCHEMA_VERSION
     return ev
 
 
