@@ -1,25 +1,33 @@
-# Publish the site (site/ + data/) to GitHub Pages.
-# Runs after every collection run, so the map shows the newest data, and on
-# pushes to main that change the site. (Commits made by the collect workflow
-# do not trigger "push" workflows, hence workflow_run.)
+# サイト(site/ + data/)を GitHub Pages に公開する。
 #
-# One-time setup: Settings > Pages > Build and deployment > Source: "GitHub Actions".
+# いつ動くか:
+#   - collect(データ収集)が終わるたび → 地図にいつも最新のデータが出るように
+#   - main に site/ などの変更が入ったとき → 画面の修正をすぐ反映
+#   - 手動実行(Actions 画面の Run workflow)
+# collect が main に入れるデータのコミットは、GitHub の仕様で別の push ワークフローを起動しない。
+# そのため push ではなく workflow_run(「collect が終わったら」)で受けている。
+#
+# 初回だけ必要な設定: Settings > Pages > Build and deployment > Source を「GitHub Actions」にする。
 name: pages
 
 on:
   push:
     branches: [main]
+    # データ以外で、サイトの見た目や組み立てに関わるファイルが変わったときだけ動かす
     paths: ["site/**", "scripts/build_site.py", ".github/workflows/pages.yml"]
   workflow_run:
     workflows: [collect]
+    # 収集が一部失敗(赤)でも、取れたデータは保存されているので公開する
     types: [completed]
   workflow_dispatch:
 
+# Pages への公開に必要な最小限の権限(リポジトリは読むだけ)
 permissions:
   contents: read
   pages: write
   id-token: write
 
+# 公開が重なったら古いほうを取り消す(最新のデータだけを公開すれば十分なため)
 concurrency:
   group: pages
   cancel-in-progress: true
@@ -34,10 +42,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
+          # workflow_run のときも、収集が書き込んだ最新の main を使う
           ref: main
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+      # site/ と data/ を _site/ にまとめ、ファイル一覧(manifest.json)を作る
       - name: Build
         run: python scripts/build_site.py --out _site
       - uses: actions/configure-pages@v5

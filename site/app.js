@@ -1,14 +1,21 @@
-/* Present for Kids: Phase 1 viewer.
- * Reads the static JSON that the collector commits (data/), shows events on a
- * world map and a daily timeline, and lets people filter them.
- * No build step and no framework: plain browser JavaScript + MapLibre GL JS.
+/* Present for Kids: Phase 1 の表示画面
+ *
+ * 収集基盤(collector)がリポジトリに保存した静的 JSON(data/)を読み込み、
+ * 世界地図と日ごとのタイムラインに出来事を表示し、分野・向き・期間で絞り込めるようにする。
+ *
+ * 設計の方針:
+ * - ビルド工程もフレームワークも使わない(素のブラウザ JavaScript + 同梱の MapLibre GL JS)。
+ *   費用ゼロの静的ホスティング(GitHub Pages)でそのまま動き、やすさんが読んで直せる形を優先した。
+ * - 外部 CDN や地図タイルサーバーには接続しない。閲覧者の追跡をなくし、外部サービスの停止や規約変更の影響を受けないため。
+ * - 全体を即時関数 (() => { ... })() で包み、変数がページ全体(グローバル)に漏れないようにしている。
  */
 (() => {
   'use strict';
 
-  // ---------- vocabulary ----------
-  // Display order = slot order of the validated categorical palette (--c1..--c8).
-  // Color follows the category, never its rank or count.
+  // ---------- 語彙(分野・向き・種類などの表示名) ----------
+  // 分野(カテゴリ)の一覧。並び順 = 色覚の多様性に配慮して検証済みの8色パレット(--c1〜--c8)の順番。
+  // この順番は、タイムラインの積み上げで隣り合う色が見分けやすくなるよう選ばれているので、入れ替えない。
+  // 色は分野そのものに固定し、件数の多さや順位で塗り替えない(絞り込んでも同じ分野は同じ色のまま)。
   const CATS = [
     { id: 'disaster_climate', slot: 'c1', ja: '災害・気候', en: 'Disasters & climate' },
     { id: 'conflict_security', slot: 'c2', ja: '紛争・安全保障', en: 'Conflict & security' },
@@ -19,8 +26,10 @@
     { id: 'ai_technology', slot: 'c7', ja: 'AI・技術', en: 'AI & technology' },
     { id: 'human_rights', slot: 'c8', ja: '人権', en: 'Human rights' },
   ];
+  // 分野 id から定義を引くための辞書(例: CAT.disaster_climate.ja)。
   const CAT = Object.fromEntries(CATS.map((c) => [c.id, c]));
 
+  // 出来事の「向き」。サイトの方針として、悪化だけでなく改善や転換点も同じ重さで扱う。
   const DIRS = [
     { id: 'worsening', icon: '▼', ja: '悪化', en: 'Worsening' },
     { id: 'improving', icon: '▲', ja: '改善', en: 'Improving' },
@@ -29,6 +38,7 @@
   ];
   const DIR = Object.fromEntries(DIRS.map((d) => [d.id, d]));
 
+  // 災害の種類(USGS / GDACS の type)の日本語名。日本語見出しが AI で付くまでは「種類(国名)」の形で表示に使う。
   const TYPES = {
     earthquake: { ja: '地震', en: 'Earthquake' },
     tropical_cyclone: { ja: '台風・熱帯低気圧', en: 'Tropical cyclone' },
@@ -38,7 +48,8 @@
     wildfire: { ja: '山火事', en: 'Wildfire' },
     tsunami: { ja: '津波', en: 'Tsunami' },
   };
-  // GDELT titles start with these English labels (collector/sources/gdelt.py).
+  // GDELT の見出しは「英語ラベル: 主体名 (場所)」の形(collector/sources/gdelt.py が付けている)。
+  // 先頭の英語ラベルを日本語に置き換えて表示する。ラベルが増えたらここにも追加する(未登録なら英語のまま出る)。
   const GDELT_JA = {
     'Material cooperation': '実務・物資の協力',
     'Aid provided': '援助',
@@ -53,6 +64,7 @@
     'Protection granted': '保護の付与',
     'Political reform accepted': '政治改革の受け入れ',
   };
+  // データの出典名とサイト。フッターの取得状況や一覧の「出典」表示に使う。
   const SOURCES = {
     usgs: { name: 'USGS', url: 'https://earthquake.usgs.gov/' },
     gdacs: { name: 'GDACS', url: 'https://www.gdacs.org/' },
@@ -60,17 +72,22 @@
     reliefweb: { name: 'ReliefWeb', url: 'https://reliefweb.int/' },
     unhcr: { name: 'UNHCR', url: 'https://www.unhcr.org/refugee-statistics/' },
   };
+  // 情報の確からしさ(収集側の confidence)。low は報道からの機械抽出で誤りを含みうるため、地図では輪郭だけの点にする。
   const CONF = {
     high: { ja: '公的機関の一次情報', en: 'Official primary source' },
     medium: { ja: '編集済みの二次情報', en: 'Curated secondary source' },
     low: { ja: '報道からの機械抽出', en: 'Machine-coded from news' },
   };
+  // 深刻度ごとの点の半径(px、ズーム1のとき)。最小でも直径8px にして、小さすぎて押せない・見えない点を作らない。
   const SEV_RADIUS = { low: 4, medium: 5.5, high: 7.5, critical: 9.5 };
-  // UNHCR: people forced to flee, by country of origin (returnees excluded).
+  // 国の塗り分けに使う UNHCR の指標(出身国別)。難民・庇護申請者・国内避難民・無国籍・その他保護が必要な人を合計する。
+  // 帰還した人(returned_*)は「いま避難している人」ではないので含めない。
   const DISPLACED = ['refugees_by_origin', 'asylum_seekers_by_origin', 'internally_displaced_by_origin',
     'stateless_by_origin', 'other_in_need_of_protection_by_origin'];
+  // 塗り分けの区切り(人)。1万〜500万人と桁が大きく違うので、ほぼ対数的な間隔にして小さな国の差も見えるようにした。
   const CHORO_STEPS = [10000, 100000, 500000, 1000000, 5000000];
 
+  // 画面の文言(日本語 / 英語)。HTML の data-i18n 属性のキーと対応する。関数になっているものは数を受け取って文を作る。
   const T = {
     ja: {
       tagline: '未来の子供たちのために、世界でいま起きていることを俯瞰する',
@@ -118,52 +135,63 @@
     },
   };
 
-  const DAY = 86400000;
-  const LOAD_DAYS = 92; // months of event files to load, counted back from the newest data
+  const DAY = 86400000; // 1日のミリ秒
+  // 読み込む期間(日)。最新データの月から約3か月前までの月別ファイルを読む。
+  // 全期間を読むとデータが増えるほど表示が遅くなるため、まずは直近に絞っている。
+  const LOAD_DAYS = 92;
 
-  // ---------- state ----------
+  // ---------- 画面の状態 ----------
+  // 絞り込みの条件はすべて state に集め、変わったら renderAll() で描き直す。
   const state = {
     lang: 'ja',
     cats: new Set(CATS.map((c) => c.id)),
     dirs: new Set(DIRS.map((d) => d.id)),
     showNews: true,
     showChoro: false,
-    range: null, // [startMs, endMs) in UTC days
-    rangeDays: 7,
+    range: null, // 表示する期間 [開始, 終了) のミリ秒(UTC の日の境目)。終了は含まない
+    rangeDays: 7, // 期間ボタン(24時間/7日/30日/すべて=0)のどれが選ばれているか。ドラッグで選んだときは null
   };
-  let events = [];
-  let countries = null; // iso3 -> {ja, en}
-  let displaced = null; // {period, byIso3}
+  let events = []; // 読み込んだ全出来事(新しい順)
+  let countries = null; // 国コード(ISO3) → {ja, en} 国名
+  let displaced = null; // UNHCR の避難者数 {period: 年, byIso3: {国コード: 人数}}
   let status = null;
-  let domain = null; // [firstDayMs, lastDayMs]
+  let domain = null; // タイムラインの横軸の範囲 [最初の日, 最後の日](UTC の日の0時、ミリ秒)
   let map = null;
-  let mapReady = false;
+  let mapReady = false; // 地図の読み込みが終わるまでは地図の操作をしない
   let popup = null;
 
+  // 小さな補助関数たち
   const $ = (id) => document.getElementById(id);
   const t = (k) => T[state.lang][k];
+  // CSS 変数(style.css の :root)から色を読む。ダークモードの切り替えにも自動で追従する。
   const css = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+  // HTML に差し込む文字列のエスケープ。外部データ(見出しなど)を必ずこれに通して、HTML として解釈されないようにする。
   const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  // 時刻をその日(UTC)の0時に切り捨てる。タイムラインは UTC の日単位で集計する。
   const dayOf = (ms) => Math.floor(ms / DAY) * DAY;
+  // 出典リンクは http/https のものだけ使う(javascript: などの危険なリンクを防ぐ)。
   const safeUrl = (u) => (/^https?:\/\//i.test(u || '') ? u : null);
 
-  // ---------- language ----------
+  // ---------- 言語の切り替え ----------
+  // 表示言語を決める。優先順位: URL の ?lang= > 前回選んだ言語(ブラウザに保存) > ブラウザの言語設定。
   function initLang() {
     const q = new URLSearchParams(location.search).get('lang');
     let saved = null;
-    try { saved = localStorage.getItem('pfk-lang'); } catch (_) { /* storage blocked */ }
+    // プライベートモードなどで保存領域が使えないと例外になるので、失敗しても止まらないようにする。
+    try { saved = localStorage.getItem('pfk-lang'); } catch (_) { /* 保存領域が使えない */ }
     const nav = (navigator.language || '').toLowerCase().startsWith('ja') ? 'ja' : 'en';
     state.lang = ['ja', 'en'].includes(q) ? q : ['ja', 'en'].includes(saved) ? saved : nav;
     document.querySelectorAll('.lang button').forEach((b) => {
       b.addEventListener('click', () => {
         state.lang = b.dataset.lang;
-        try { localStorage.setItem('pfk-lang', state.lang); } catch (_) { /* ignore */ }
+        try { localStorage.setItem('pfk-lang', state.lang); } catch (_) { /* 保存できなくても表示は続ける */ }
         applyLang();
         renderAll();
       });
     });
     applyLang();
   }
+  // data-i18n の付いた要素の文字を、選ばれた言語の文言に差し替える。
   function applyLang() {
     document.documentElement.lang = state.lang;
     document.querySelectorAll('[data-i18n]').forEach((el) => { el.textContent = t(el.dataset.i18n); });
@@ -171,7 +199,8 @@
     document.querySelectorAll('.lang button').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.lang === state.lang)));
   }
 
-  // ---------- labels ----------
+  // ---------- 表示用の文字を作る ----------
+  // 出来事の「種類」の表示名。GDELT は見出し先頭のラベルから、災害は type から作る。
   function kindLabel(e) {
     if (e.source === 'gdelt') {
       const en = (e.title.en || '').split(':')[0];
@@ -180,27 +209,33 @@
     const ty = TYPES[e.type];
     return ty ? ty[state.lang] : e.type;
   }
+  // 場所の表示名。日本語表示で国コードが分かれば日本語の国名、なければ元データの地名(英語)。
   function placeLabel(e) {
     const iso = e.location.country_iso3;
     if (state.lang === 'ja' && iso && countries && countries[iso] && countries[iso].ja) return countries[iso].ja;
     return e.location.place || '';
   }
+  // 出来事の見出し。その言語の見出しがあればそれを使い、なければ「種類(場所)」を組み立てる。
+  // 日本語の見出し(title.ja)は今後の AI 段階で埋まる予定で、いまは空。
   function title(e) {
     if (e.title[state.lang]) return e.title[state.lang];
     const place = placeLabel(e);
     return place ? `${kindLabel(e)}（${place}）` : kindLabel(e);
   }
   function originalTitle(e) {
-    // In Japanese mode, show the source's own headline until the AI stage translates it.
+    // 日本語表示で日本語見出しがまだない間は、出典の元の英語見出しも小さく併記する(情報を落とさないため)。
     return state.lang === 'ja' && !e.title.ja ? e.title.en : null;
   }
+  // 日時の表示。閲覧者の地域の時刻で出す。
   function when(e) {
     const d = new Date(e._t);
+    // GDELT は日付しか持たない(時刻は 00:00:00Z 固定)ので、時刻を出すと誤解を招く。日付だけを UTC で出す。
     const dateOnly = e.source === 'gdelt' && e.occurred_at.endsWith('T00:00:00Z');
     const loc = state.lang === 'ja' ? 'ja-JP' : 'en-GB';
     if (dateOnly) return d.toLocaleDateString(loc, { timeZone: 'UTC', month: 'short', day: 'numeric' });
     return d.toLocaleString(loc, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
   }
+  // 深刻度の数値を読みやすい文字にする(地震はマグニチュード、GDELT は報道件数)。0 や空なら出さない。
   function severityText(e) {
     const s = e.severity || {};
     if (s.value == null || s.value === 0) return '';
@@ -208,25 +243,33 @@
     if (s.unit === 'magnitude' || s.unit === 'M') return `M${s.value}`;
     return `${s.value}${s.unit ? ' ' + s.unit : ''}`;
   }
+  // 一覧やポップアップの補足行: 日時 / 向き / 深刻度 / 出典・確からしさ。
   function metaLine(e) {
     const dir = DIR[e.direction];
     return [when(e), dir ? `${dir.icon} ${dir[state.lang]}` : '', severityText(e),
       `${(SOURCES[e.source] || {}).name || e.source}・${(CONF[e.confidence] || {})[state.lang] || ''}`]
       .filter(Boolean).join(' / ');
   }
+  // 分野の色。未知の分野が来ても止まらないよう、最初の色で代用する。
   const catColor = (id) => css('--' + (CAT[id] || CATS[0]).slot);
+  // 分野の色の丸(凡例・一覧用)。low = 報道からの機械抽出は中を塗らず輪郭だけにして、地図と見た目をそろえる。
   const dot = (cat, low) => `<span class="dot" style="color:${catColor(cat)};background:${low ? 'transparent' : catColor(cat)}"></span>`;
 
-  // ---------- data ----------
+  // ---------- データの読み込み ----------
+  // JSON を取得する。cache: 'no-cache' で、毎時更新されるデータの古いキャッシュを使わないようにする(更新がなければ通信は軽い)。
   async function getJSON(url) {
     const r = await fetch(url, { cache: 'no-cache' });
     if (!r.ok) throw new Error(`${url}: HTTP ${r.status}`);
     return r.json();
   }
+  // 必要なデータをすべて読み込み、events / countries / displaced / status / domain を用意する。
+  // ブラウザは GitHub Pages 上のフォルダの中身を一覧できないので、ビルド時に作る manifest.json で
+  // どの月のファイルがあるかを知る(scripts/build_site.py)。
   async function loadData() {
     const manifest = await getJSON('data/manifest.json');
     const allMonths = Object.values(manifest.events || {}).flat().sort();
     const newest = allMonths.length ? allMonths[allMonths.length - 1] : null;
+    // 最新の月から LOAD_DAYS 日前の月までを読む(文字列 "YYYY-MM" はそのまま大小比較できる)。
     let cutoff = '';
     if (newest) {
       const d = new Date(Date.UTC(+newest.slice(0, 4), +newest.slice(5, 7) - 1, 1) - LOAD_DAYS * DAY);
@@ -237,8 +280,11 @@
       for (const m of months) if (m >= cutoff) files.push(`data/events/${src}/${m}.json`);
     }
     const unhcr = (manifest.indicators || {}).unhcr || [];
+    // 避難者数は最新の年だけを使う。
     const latestPeriod = unhcr.length ? unhcr[unhcr.length - 1] : null;
 
+    // まとめて並行に取得する。出来事の1ファイルや指標・取得状況が失敗しても、残りで表示できるよう個別に握りつぶす。
+    // 国境データ(countries.geojson)だけは地図に必須なので、失敗したら全体をエラーにする。
     const [lists, geo, ind, st] = await Promise.all([
       Promise.all(files.map((f) => getJSON(f).catch((err) => { console.warn(err); return []; }))),
       getJSON('assets/countries.geojson'),
@@ -246,6 +292,9 @@
       getJSON('data/status.json').catch(() => null),
     ]);
 
+    // id で重複を除く(同じ出来事が月をまたいで二重に入っても1件にする)。
+    // id はこのページの中で使うだけで保存しない(GDELT の id 形式は収集側で変わることがあるため)。
+    // 日時が読めないものは期間で絞れないので除外する。_t は計算済みの時刻、_i は配列内の番号(地図の点から引くため)。
     const seen = new Map();
     for (const list of lists) for (const e of list) {
       e._t = Date.parse(e.occurred_at);
@@ -257,6 +306,7 @@
     countries = {};
     for (const f of geo.features) countries[f.properties.iso3] = f.properties;
 
+    // 国ごとに避難者数を合計する。国コードがない行(地域全体など)や数値でない値は飛ばす。
     const byIso3 = {};
     for (const r of ind) {
       if (!DISPLACED.includes(r.indicator) || !r.area || !r.area.iso3 || typeof r.value !== 'number') continue;
@@ -265,6 +315,8 @@
     displaced = latestPeriod ? { period: latestPeriod, byIso3 } : null;
     status = st;
 
+    // タイムラインの横軸: 最も古い出来事の日〜今日(または最新の出来事の日)。ただし長くても LOAD_DAYS 日まで。
+    // データが1件もないときは、空の軸が出せるよう直近7日にしておく。
     if (events.length) {
       const first = dayOf(events[events.length - 1]._t);
       const last = Math.max(dayOf(events[0]._t), dayOf(Date.now()));
@@ -276,7 +328,9 @@
     return geo;
   }
 
-  // ---------- filtering ----------
+  // ---------- 絞り込み ----------
+  // 出来事が今の条件(分野・向き・報道抽出の表示・期間)に合うか。
+  // ignoreRange = true は期間を無視する(タイムラインは選んだ期間の外の日も描くため)。
   function passes(e, ignoreRange) {
     if (!state.cats.has(e.category)) return false;
     if (!state.dirs.has(e.direction)) return false;
@@ -284,13 +338,15 @@
     if (!ignoreRange && state.range && (e._t < state.range[0] || e._t >= state.range[1])) return false;
     return true;
   }
+  // 期間ボタンの処理。最後の日の翌日0時を終わりとして、そこから days 日さかのぼる。days = 0 は全期間。
   function setRangeDays(days) {
     state.rangeDays = days;
     const end = domain[1] + DAY;
     state.range = days ? [Math.max(domain[0], end - days * DAY), end] : [domain[0], end];
   }
 
-  // ---------- render: panel ----------
+  // ---------- 右側パネルの描画 ----------
+  // 上部の要約: 件数・期間・向きごとの件数。
   function renderSummary(list) {
     const counts = Object.fromEntries(DIRS.map((d) => [d.id, 0]));
     list.forEach((e) => { counts[e.direction] = (counts[e.direction] || 0) + 1; });
@@ -301,6 +357,9 @@
     $('summary').innerHTML = `<div><strong>${list.length.toLocaleString()}</strong>${esc(t('count'))}<span class="muted">　${esc(t('period'))}: ${esc(span)} (UTC)</span></div><div class="muted">${esc(dirs)}</div>`;
   }
 
+  // 分野と向きの絞り込みボタン(件数付き)。凡例も兼ねる。
+  // 分野ボタンの件数は「分野の条件だけ外した」件数にする。オフにした分野にも何件あるかが分かるようにするため。
+  // 0件の分野も消さずに表示する(全分野を同じ重さで扱う方針)。
   function renderChips() {
     const inRange = events.filter((e) => passesExcept(e, 'cat'));
     const catCount = {};
@@ -311,6 +370,7 @@
     inRange2.forEach((e) => { dirCount[e.direction] = (dirCount[e.direction] || 0) + 1; });
     $('dir-filters').innerHTML = DIRS.map((d) => `<button type="button" class="chip" data-dir="${d.id}" aria-pressed="${state.dirs.has(d.id)}"><span aria-hidden="true">${d.icon}</span>${esc(d[state.lang])} <span class="n">${dirCount[d.id] || 0}</span></button>`).join('');
   }
+  // passes() と同じだが、分野(cat)または向き(dir)の条件だけを一時的に外して判定する。
   function passesExcept(e, which) {
     const cats = state.cats; const dirs = state.dirs;
     if (which === 'cat') state.cats = new Set(CATS.map((c) => c.id));
@@ -320,7 +380,9 @@
     return ok;
   }
 
+  // 一覧に出す最大件数。数千件を一度に並べると画面が重くなるため。超えた分は「ほか N 件」と表示する。
   const LIST_MAX = 150;
+  // 出来事の一覧(新しい順)。地図を見なくても内容が読める「表」の役割も持つ。
   function renderList(list) {
     $('list-count').textContent = t('items')(list.length);
     const items = list.slice(0, LIST_MAX).map((e) => {
@@ -331,6 +393,8 @@
     $('event-list').innerHTML = items.join('');
   }
 
+  // フッターの取得状況: ソースごとに最後に取得できた時刻。
+  // ReliefWeb のように準備中(skipped)のものは「準備中」、失敗中のものは「取得失敗」と出す。
   function renderStatus() {
     const el = $('status');
     if (!status) { el.innerHTML = ''; return; }
@@ -346,7 +410,9 @@
     }).join('');
   }
 
-  // ---------- render: map ----------
+  // ---------- 地図の描画 ----------
+  // 出来事を地図用の GeoJSON に変換する。座標のないものは地図に置けないので除く(一覧には出る)。
+  // properties: i = events 内の番号、cat = 分野、r = 半径、low = 報道抽出なら1、t = 時刻。
   function eventFeatures(list) {
     return {
       type: 'FeatureCollection',
@@ -357,12 +423,16 @@
       })),
     };
   }
+  // MapLibre の式で「分野 → 色」の対応表を作る。CSS 変数から読むので、ダークモードの色にも切り替わる。
   function catMatch() {
     const m = ['match', ['get', 'cat']];
     CATS.forEach((c) => m.push(c.id, catColor(c.id)));
     m.push(css('--text-muted'));
     return m;
   }
+  // 国の塗り色。塗り分けがオフ、またはデータがなければ通常の陸の色。
+  // オンなら避難者数を CHORO_STEPS の区切りで5段階の灰色にする。
+  // 灰色(色相なし)にしたのは、分野の8色の点と混ざって見分けにくくならないようにするため。
   function choroColor() {
     if (!state.showChoro || !displaced) return css('--land');
     const steps = ['--choro-1', '--choro-2', '--choro-3', '--choro-4', '--choro-5'].map(css);
@@ -374,8 +444,10 @@
       if (k >= 0) { m.push(iso, steps[k]); any = true; }
     }
     m.push(css('--land'));
+    // 該当国が1つもないと match 式が不正になるので、その場合は単色を返す。
     return any ? m : css('--land');
   }
+  // 地図の色をまとめて塗り直す(初回、ダークモード切り替え時、塗り分けのオン/オフ時)。
   function paintMap() {
     if (!mapReady) return;
     map.setPaintProperty('bg', 'background-color', css('--ocean'));
@@ -385,6 +457,7 @@
     map.setPaintProperty('events', 'circle-stroke-color', ['case', ['==', ['get', 'low'], 1], catMatch(), css('--surface-1')]);
     renderChoroLegend();
   }
+  // 塗り分けの凡例(左下)。
   function renderChoroLegend() {
     const el = $('choro-legend');
     if (!state.showChoro || !displaced) { el.hidden = true; return; }
@@ -393,6 +466,7 @@
     el.innerHTML = `${esc(t('choroTitle').replace('{p}', displaced.period))}<div class="ramp">${steps.map((c, j) => `<span><i style="background:${c}"></i>${lab(CHORO_STEPS[j])}+</span>`).join('')}</div>`;
     el.hidden = false;
   }
+  // 地図を作る。背景タイルは使わず、海(背景色)+ 国の形(Natural Earth)+ 出来事の点 だけで描く。
   function initMap(geo) {
     map = new maplibregl.Map({
       container: 'map',
@@ -408,21 +482,27 @@
           { id: 'borders', type: 'line', source: 'countries', paint: { 'line-color': css('--land-line'), 'line-width': 0.6 } },
           {
             id: 'events', type: 'circle', source: 'events',
+            // 描く順番: 報道抽出(low)を下、公的機関などの確かな情報を上に重ねる。
             layout: { 'circle-sort-key': ['-', 1, ['get', 'low']] },
             paint: {
+              // ズームすると点を最大1.8倍に大きくする(拡大時に押しやすく)。
               'circle-radius': ['interpolate', ['linear'], ['zoom'], 1, ['get', 'r'], 6, ['*', 1.8, ['get', 'r']]],
               'circle-color': css('--c1'),
+              // 報道抽出は中をほぼ透明にして輪郭だけに見せる。確かな情報は塗りつぶし。
               'circle-opacity': ['case', ['==', ['get', 'low'], 1], 0.12, 0.9],
-              'circle-stroke-width': ['case', ['==', ['get', 'low'], 1], 1.5, 1.5],
+              'circle-stroke-width': 1.5,
+              // 縁の色は paintMap() で設定する(報道抽出は分野の色、それ以外は背景色の縁取りで重なっても1つずつ見える)。
               'circle-stroke-color': css('--surface-1'),
             },
           },
         ],
       },
+      // 初期表示は世界全体。読み込み後に fitBounds で画面の大きさに合わせ直す。
       center: [20, 18],
       zoom: 1.1,
       minZoom: 0.6,
       maxZoom: 9,
+      // 回転は不要で、誤操作のもとになるので止める。
       dragRotate: false,
       attributionControl: { compact: true, customAttribution: 'Natural Earth' },
     });
@@ -430,12 +510,14 @@
     map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'top-right');
     map.on('load', () => {
       mapReady = true;
+      // スマホの縦長画面でも全大陸が入るよう、表示範囲を緯度経度で指定する(南極と北極圏の端は省く)。
       map.fitBounds([[-165, -50], [175, 70]], { padding: 8, duration: 0 });
       paintMap();
       renderMapData();
     });
 
     const tip = $('tooltip');
+    // マウスを乗せたとき: 点の上なら見出しを、塗り分け中に国の上なら国名と人数をツールチップで出す。
     map.on('mousemove', (ev) => {
       const hits = eventsAt(ev.point, 5);
       map.getCanvas().style.cursor = hits.length ? 'pointer' : '';
@@ -455,18 +537,23 @@
       tip.hidden = true;
     });
     map.on('mouseout', () => { tip.hidden = true; });
+    // クリック: その位置の点をまとめてポップアップに出す(同じ場所に重なった点も選べるように)。
     map.on('click', (ev) => {
       const hits = eventsAt(ev.point, 6);
       if (hits.length) openPopup(hits, ev.lngLat);
     });
   }
+  // 画面上の位置の周り pad ピクセルにある点を探す。小さい点でも当たりやすいよう、点より広めに判定する。
+  // 並び順: 確かな情報を先、その中では新しい順。
   function eventsAt(point, pad) {
     if (!mapReady) return [];
     const box = [[point.x - pad, point.y - pad], [point.x + pad, point.y + pad]];
     const ids = new Set(map.queryRenderedFeatures(box, { layers: ['events'] }).map((f) => f.properties.i));
     return [...ids].map((i) => events[i]).filter(Boolean).sort((a, b) => (a.confidence === 'low') - (b.confidence === 'low') || b._t - a._t);
   }
+  // ポップアップに出す最大件数。多すぎると画面を覆うので、残りは「ほか N 件(拡大すると分かれます)」にする。
   const POPUP_MAX = 6;
+  // 出来事のポップアップを開く。出典リンクは新しいタブで開き、noopener で元のページを操作されないようにする。
   function openPopup(list, lngLat) {
     const shown = list.slice(0, POPUP_MAX);
     const html = `<div class="popup">${shown.map((e) => {
@@ -477,11 +564,13 @@
     if (popup) popup.remove();
     popup = new maplibregl.Popup({ maxWidth: '320px', focusAfterOpen: false }).setLngLat(lngLat).setHTML(html).addTo(map);
   }
+  // 地図の点を今の絞り込み結果に入れ替える。
   function renderMapData(list) {
     if (!mapReady) return;
     map.getSource('events').setData(eventFeatures(list || events.filter((e) => passes(e))));
   }
 
+  // マウスの近くにツールチップを出す。画面の右端・下端からはみ出しそうなら反対側に出す。
   function showTip(mouse, html) {
     const tip = $('tooltip');
     tip.innerHTML = html;
@@ -494,9 +583,12 @@
     tip.style.top = `${Math.max(8, y)}px`;
   }
 
-  // ---------- render: timeline ----------
+  // ---------- タイムラインの描画 ----------
+  // グラフの余白(px)。左は縦軸の数字、下は日付のぶん空ける。
   const M = { l: 34, r: 8, t: 8, b: 22 };
-  let tl = null; // geometry of the last draw, for pointer handling
+  let tl = null; // 最後に描いたときの寸法と集計。ドラッグやマウス位置から日を求めるのに使う
+  // 日ごとの件数を分野別に積み上げた棒グラフを SVG で描く。
+  // 期間の条件は無視して全日を描き(選んだ期間は青い枠で示す)、分野・向きなどの条件は反映する。
   function renderTimeline() {
     if (!domain) return;
     const box = $('timeline');
@@ -514,6 +606,7 @@
     const nice = niceMax(max);
     const iw = W - M.l - M.r; const ih = H - M.t - M.b;
     const step = iw / nDays;
+    // 棒の幅: 1日の幅から2px のすき間を引く。日数が少ないとき太くなりすぎないよう最大28px。
     const bw = Math.max(1, Math.min(28, step - 2));
     const y = (v) => M.t + ih - (v / nice) * ih;
     tl = { W, H, nDays, step, iw, counts, totals };
@@ -537,6 +630,7 @@
     counts.forEach((c, k) => {
       let base = 0;
       const x = M.l + k * step + (step - bw) / 2;
+      // 分野の順番(CATS)で下から積む。いちばん上の段だけ角を丸める。
       const present = CATS.filter((cat) => c[cat.id]);
       present.forEach((cat, j) => {
         const v = c[cat.id];
@@ -550,23 +644,27 @@
     s += '</svg>';
     box.innerHTML = s;
   }
+  // 棒の1段ぶんの SVG パス。r > 0 なら上の2つの角を丸める。
   function barSeg(x, y, w, h, r, fill, gap) {
     if (h <= 0) return '';
     r = Math.min(r, h);
     const d = r
       ? `M${x},${y + h}V${y + r}Q${x},${y} ${x + r},${y}H${x + w - r}Q${x + w},${y} ${x + w},${y + r}V${y + h}Z`
       : `M${x},${y + h}V${y}H${x + w}V${y + h}Z`;
-    // A 1px stroke in the surface color leaves a 2px gap between stacked segments.
+    // 背景色の1px の縁取りで、積み上げた段のあいだに2px のすき間を作り、色の境目を見やすくする。
     return `<path d="${d}" fill="${fill}" stroke="${gap}" stroke-width="1" />`;
   }
+  // 縦軸の上限を切りのよい数(1, 2, 4, 5, 10 × 10のべき乗)に丸める。目盛りの数字を読みやすくするため。
   function niceMax(v) {
     const p = Math.pow(10, Math.floor(Math.log10(v)));
     for (const m of [1, 2, 4, 5, 10]) if (m * p >= v) return Math.max(2, m * p);
     return v;
   }
+  // タイムラインの操作を設定する: ドラッグで期間選択、クリックでその1日、マウスを乗せるとその日の内訳。
   function initTimeline() {
     const box = $('timeline');
     let drag = null;
+    // マウスの位置が何日目に当たるか(SVG が拡大縮小されていても合うよう、実際の表示幅で換算する)。
     const dayAt = (ev) => {
       const r = box.getBoundingClientRect();
       const x = (ev.clientX - r.left) * (tl.W / r.width) - M.l;
@@ -574,6 +672,7 @@
     };
     box.addEventListener('pointerdown', (ev) => {
       if (!tl) return;
+      // ポインターを捕まえておくと、グラフの外までドラッグしても追いかけられる。
       drag = { from: dayAt(ev), moved: false };
       box.setPointerCapture(ev.pointerId);
     });
@@ -585,6 +684,7 @@
         const a = Math.min(drag.from, k); const b = Math.max(drag.from, k) + 1;
         state.range = [domain[0] + a * DAY, domain[0] + b * DAY];
         state.rangeDays = null;
+        // ドラッグ中は軽い描画だけにして、動きを滑らかにする(重い一覧の更新は指を離したとき)。
         renderAll(true);
         return;
       }
@@ -597,6 +697,7 @@
     });
     const end = (ev) => {
       if (!drag) return;
+      // 動かさずに離した = クリック。その1日だけを選ぶ。
       if (!drag.moved) {
         const k = drag.from;
         state.range = [domain[0] + k * DAY, domain[0] + (k + 1) * DAY];
@@ -613,11 +714,13 @@
       const hover = document.getElementById('tl-hover');
       if (hover) hover.setAttribute('visibility', 'hidden');
     });
+    // 画面の幅が変わったら描き直す。連続して来るので、次の描画の直前に1回だけ実行する。
     let raf = 0;
     new ResizeObserver(() => { cancelAnimationFrame(raf); raf = requestAnimationFrame(renderTimeline); }).observe(box);
   }
 
-  // ---------- wiring ----------
+  // ---------- 全体のつなぎこみ ----------
+  // 状態が変わったら呼ぶ全体の描き直し。fast = true はドラッグ中で、軽い部分だけを描く。
   function renderAll(fast) {
     if (!domain) return;
     const list = events.filter((e) => passes(e));
@@ -625,15 +728,18 @@
     renderMapData(list);
     renderSummary(list);
     document.querySelectorAll('#ranges button').forEach((b) => b.setAttribute('aria-pressed', String(Number(b.dataset.days) === state.rangeDays)));
+    // 条件に合う出来事が0件なら、地図の上に「当てはまる出来事はありません」と出す(空の地図で戸惑わないように)。
     const note = $('map-note');
     if (!list.length) { note.textContent = t('empty'); note.hidden = false; } else note.hidden = true;
-    if (fast) return; // while dragging the brush, skip the heavier panel work
+    if (fast) return; // ドラッグ中は、重い一覧や絞り込みボタンの更新を省く
     renderChips();
     renderList(list);
     renderStatus();
     paintMap();
   }
 
+  // ボタンやチェックボックスの操作を設定する。
+  // ボタンは描き直すたびに作り直すので、親要素で1回だけクリックを受け取る(イベントの委任)。
   function initControls() {
     $('cat-filters').addEventListener('click', (ev) => {
       const b = ev.target.closest('[data-cat]');
@@ -657,6 +763,7 @@
       setRangeDays(Number(b.dataset.days));
       renderAll();
     });
+    // 一覧の出来事を押すと、地図をその場所へ移動してポップアップを開く。
     $('event-list').addEventListener('click', (ev) => {
       const b = ev.target.closest('[data-i]');
       if (!b || !mapReady) return;
@@ -666,10 +773,13 @@
       map.flyTo({ center: ll, zoom: Math.max(map.getZoom(), 4), speed: 1.4 });
       openPopup([e], ll);
     });
+    // OS のダークモード切り替えに合わせて、地図とグラフの色を塗り直す(古いブラウザは addListener)。
     const mq = matchMedia('(prefers-color-scheme: dark)');
     (mq.addEventListener ? mq.addEventListener.bind(mq, 'change') : mq.addListener.bind(mq))(() => renderAll());
   }
 
+  // 起動処理: 言語と操作を準備 → データ読み込み → 最初は直近7日を表示。
+  // 読み込みに失敗したら、地図の上にお知らせを出して止める。
   async function main() {
     initLang();
     initControls();

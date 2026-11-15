@@ -9,6 +9,7 @@
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
+<!-- 画面の骨組みだけを書き、中身は app.js が作る。data-i18n の付いた要素の文字は app.js が日本語/英語で差し込む -->
 <header class="top">
   <div class="brand">
     <h1>Present for Kids</h1>
@@ -20,6 +21,7 @@
   </div>
 </header>
 
+<!-- 地図・右パネル・タイムラインの3つの区画。配置は style.css の .layout で決める -->
 <main class="layout">
   <section class="map-wrap" aria-label="map">
     <div id="map"></div>
@@ -77,6 +79,7 @@
 
 <div class="tooltip" id="tooltip" role="tooltip" hidden></div>
 
+<!-- 地図ライブラリ MapLibre GL JS 5.24.0(BSD-3)をリポジトリに同梱して読み込む。外部 CDN を使わない理由は app.js の冒頭を参照 -->
 <script src="vendor/maplibre-gl/maplibre-gl.js"></script>
 <script src="app.js"></script>
 </body>

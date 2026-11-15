@@ -4,13 +4,17 @@ import tempfile
 import unittest
 from pathlib import Path
 
+# scripts/ はパッケージではないので、import できるよう検索パスに足す
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
 
 import build_site  # noqa: E402
 
 
 class BuildSiteTest(unittest.TestCase):
+    """scripts/build_site.py のテスト(ネットワーク不要、一時フォルダの中だけで動く)。"""
+
     def test_manifest_lists_months_and_periods(self):
+        """manifest に月・年が昇順で載り、サイトとデータがコピーされ、.gitkeep は除かれることを確かめる。"""
         with tempfile.TemporaryDirectory() as tmp:
             tmp = Path(tmp)
             site = tmp / "site"
