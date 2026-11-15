@@ -63,6 +63,18 @@ BASES = {
 
 MIN_ARTICLES = int(os.environ.get("GDELT_MIN_ARTICLES", "5"))
 MAX_EVENTS = int(os.environ.get("GDELT_MAX_EVENTS", "300"))
+# News often mentions old events ("a year ago..."); GDELT then codes them with
+# the old date. Keep only events dated within this many days of being seen.
+MAX_AGE_DAYS = int(os.environ.get("GDELT_MAX_AGE_DAYS", "7"))
+
+
+def _too_old(r) -> bool:
+    try:
+        event = datetime.strptime(r[C["sqldate"]], "%Y%m%d")
+        seen = datetime.strptime(r[C["date_added"]][:8], "%Y%m%d")
+    except ValueError:
+        return True
+    return (seen - event).days > MAX_AGE_DAYS
 
 
 def _level(root, articles):
@@ -79,7 +91,7 @@ def _keep(r) -> bool:
         return False
     if r[C["base_code"]] not in BASES and r[C["root_code"]] not in ROOTS:
         return False
-    if not r[C["geo_lat"]] or not r[C["url"]]:
+    if not r[C["geo_lat"]] or not r[C["url"]] or _too_old(r):
         return False
     try:
         return int(r[C["articles"]]) >= MIN_ARTICLES

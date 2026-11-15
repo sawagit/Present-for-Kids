@@ -71,6 +71,12 @@ class GdeltTest(unittest.TestCase):
         self.assertEqual(by_type["cameo_0871"]["direction"], "turning_point")
         self.assertEqual(evs[0]["type"], "cameo_190")             # ranked by articles
 
+    def test_old_dated_events_dropped(self):
+        rows = self.rows()
+        rows[0][1] = "20251107"  # same clash, but dated a year before it was seen
+        types = {e["type"]: e for e in gdelt.parse_rows(rows)}
+        self.assertEqual(types["cameo_190"]["severity"]["value"], 10)
+
     def test_zip_reader_and_lastupdate(self):
         buf = io.BytesIO()
         with zipfile.ZipFile(buf, "w") as z:
@@ -105,13 +111,26 @@ class ReliefwebTest(unittest.TestCase):
         self.assertEqual(q["filter"]["value"]["from"], "2026-11-07T00:00:00+00:00")
 
 
-class ReliefwebSkipTest(unittest.TestCase):
-    def test_skipped_without_appname_is_not_a_failure(self):
-        with tempfile.TemporaryDirectory() as d, mock.patch.dict("os.environ", {}, clear=True):
-            code = run.main(["--sources", "reliefweb", "--out", d, "--strict"])
-            status = json.loads((Path(d) / "status.json").read_text())
-        self.assertEqual(code, 0)
-        self.assertIn("RELIEFWEB_APPNAME", status["reliefweb"]["skipped"])
+class ReliefwebRssTest(unittest.TestCase):
+    def test_parse_rss(self):
+        evs = reliefweb.parse_rss((FIX / "reliefweb_rss.xml").read_bytes())
+        self.assertEqual(len(evs), 2)  # item without date skipped
+        chol, refu = evs
+        self.assertEqual(chol["id"], "reliefweb:4100010")
+        self.assertEqual(chol["category"], "public_health")
+        self.assertEqual(chol["location"]["place"], "Sudan")
+        self.assertEqual(chol["occurred_at"], "2026-11-14T10:20:30Z")
+        self.assertNotIn("body", json.dumps(chol))  # description never stored
+        self.assertEqual(refu["tags"], ["displacement"])
+        self.assertEqual(refu["location"]["place"], "Chad")
+
+    def test_rss_used_without_appname(self):
+        raw = (FIX / "reliefweb_rss.xml").read_bytes()
+        with mock.patch.dict("os.environ", {}, clear=True), \
+                mock.patch.object(reliefweb.http, "get", return_value=raw) as get:
+            evs = reliefweb.fetch(run.Context())
+        get.assert_called_once_with(reliefweb.RSS_URL)
+        self.assertEqual(len(evs), 2)
 
 
 class UnhcrTest(unittest.TestCase):
