@@ -18,6 +18,20 @@ Reads every stored event and writes two files under data/analysis/:
 The same earthquake is reported by both USGS and GDACS; such pairs are
 counted once (USGS kept, as the primary source) and listed in
 country_weeks.json under "same_event".
+
+危機どうしの相互作用を分析するための下準備(AI は使わず、数えるだけ)。
+保存済みの全出来事から、data/analysis/ に 2 つのファイルを作る。
+
+- country_weeks.json: 国 × 週ごとに、分野別の件数・悪化/改善の数・出来事の ID。
+  同じ場所・同じ時期の災害・紛争・物価・難民を横に並べるための共通の「升目」で、
+  地図の色分けやタイムラインにも使える。
+- link_candidates.json: 同じ国・同じ週に 2 つ以上の分野の出来事が重なったもの。
+  あくまで「候補」で、同じ場所・時期に起きたことは原因であることを意味しない。
+  AI 段階がこれを読んで根拠つきの因果リンク案を出し、人が承認してから公開する
+  (2026-11-01 の決定)。重なりの強いものから順に並べる。
+
+USGS と GDACS は同じ地震を両方報じるので、その組は 1 件として数え(一次情報の
+USGS を残す)、country_weeks.json の "same_event" に一覧を残す。
 """
 
 from __future__ import annotations
@@ -32,31 +46,46 @@ from . import geo
 from .schema import CATEGORIES, SEVERITY_LEVELS, iso_utc
 
 WEEKS = 12            # how far back the grid goes
+# 集計する期間。12 週(約 3 か月)あれば、災害の後に避難や物価高が続くような
+# 数週間単位の波及を追える。長くするとファイルが大きくなる。
 MAX_IDS = 10          # event ids kept per category in a candidate
+# 1 つの分野につき残す出来事 ID の数。深刻なものから 10 件あれば、AI が根拠を
+# 確かめるのに十分で、ファイルも大きくなりすぎない。
 SAME_QUAKE_MINUTES = 15
 SAME_QUAKE_KM = 100
+# 「同じ地震」とみなす範囲: 発生時刻の差 15 分以内、震源の距離 100 km 以内。
+# USGS と GDACS で震源の推定が数十 km ずれることがあるので、少し広めにしてある。
 # Prefer authoritative sources when two describe the same event.
+# 同じ出来事を複数のソースが報じたとき、どちらを残すかの優先順(数字が小さいほど優先)。
 SOURCE_RANK = {"usgs": 0, "gdacs": 1, "reliefweb": 2, "gdelt": 3}
 SEV_RANK = {lvl: i for i, lvl in enumerate(SEVERITY_LEVELS)}
 
 
 def iso_week(ts: str) -> str:
+    """日時から ISO 週の名前("2026-W46" の形、月曜始まり)を返す。"""
     y, w, _ = datetime.fromisoformat(ts[:10]).isocalendar()
     return f"{y}-W{w:02d}"
 
 
 def _km(a: dict, b: dict) -> float:
+    """2 地点間の距離(km)。地球を球とみなす近似(ハーバサイン公式)で十分な精度。"""
     la1, lo1, la2, lo2 = map(math.radians, (a["lat"], a["lon"], b["lat"], b["lon"]))
     h = math.sin((la2 - la1) / 2) ** 2 + math.cos(la1) * math.cos(la2) * math.sin((lo2 - lo1) / 2) ** 2
     return 6371 * 2 * math.asin(math.sqrt(h))
 
 
 def _ts(ev: dict) -> datetime:
+    """出来事の発生時刻を datetime にする。"""
     return datetime.fromisoformat(ev["occurred_at"].replace("Z", "+00:00"))
 
 
 def same_quakes(events: list[dict]) -> dict[str, str]:
-    """Map duplicate earthquake id -> the id we keep (USGS over GDACS)."""
+    """Map duplicate earthquake id -> the id we keep (USGS over GDACS).
+
+    USGS と GDACS が同じ地震を報じている組を見つけ、{捨てる側の ID: 残す側の ID} を返す。
+    時刻順に並べて、15 分以内の相手だけを比べる(全組み合わせを比べずに済む)。
+    同じソースどうしは比べない(別の地震なので)。
+    """
     quakes = [e for e in events if e["type"] == "earthquake" and e["location"]["lat"] is not None]
     quakes.sort(key=_ts)
     dup: dict[str, str] = {}
@@ -73,6 +102,7 @@ def same_quakes(events: list[dict]) -> dict[str, str]:
 
 
 def load_events(data_dir: Path, since: str) -> list[dict]:
+    """since 以降の出来事を全ソースから読む。月のファイル名で先に絞り、古い月は開かない。"""
     out = []
     for path in sorted((data_dir / "events").glob("*/*.json")):
         if path.stem < since[:7]:
@@ -82,12 +112,15 @@ def load_events(data_dir: Path, since: str) -> list[dict]:
 
 
 def _sev(ev: dict) -> int:
+    """深刻度を並べ替え用の数にする(low=0 〜 critical=3、なし=-1)。"""
     return SEV_RANK.get(ev["severity"]["level"], -1)
 
 
 def build(data_dir: Path, now: datetime | None = None) -> dict:
+    """2 つの分析ファイルを作り直し、件数の概要を返す。now はテストで日時を固定するため。"""
     now = now or datetime.now(timezone.utc)
     start = now - timedelta(weeks=WEEKS)
+    # 週の途中から数え始めると最初の週だけ件数が少なく見えるので、月曜にそろえる。
     since = iso_utc(start - timedelta(days=start.weekday()))[:10]  # Monday
     events = load_events(data_dir, since)
     dup = same_quakes(events)
@@ -97,6 +130,7 @@ def build(data_dir: Path, now: datetime | None = None) -> dict:
         iso3 = ev["location"]["country_iso3"]
         if not iso3 or ev["id"] in dup:
             continue  # open ocean, unknown place, or counted under another source
+            # 国が分からない(海域など)か、同じ地震を別のソースで数えたものは除く。
         key = (iso3, iso_week(ev["occurred_at"]))
         cell = grid.get(key)
         if cell is None:
@@ -127,8 +161,11 @@ def build(data_dir: Path, now: datetime | None = None) -> dict:
             c["event_ids"] = [e["id"] for e in ranked[:MAX_IDS]]
         cell["categories"] = {k: cell["categories"][k] for k in CATEGORIES if k in cell["categories"]}
         cells.append(cell)
+        # 2 つ以上の分野が同じ国・同じ週に重なったら「つながり候補」にする。
         if len(cell["categories"]) >= 2:
             # Weight: categories together, then evidence that is not only news-coded.
+            # 報道の機械抽出(GDELT)だけでなく、公的機関などの裏付けがある分野の数。
+            # 誤検出の多いニュース由来だけの重なりより、確かな候補として先に並べる。
             strong = sum(1 for c in cell["categories"].values() if c["sources"] != ["gdelt"])
             candidates.append({
                 "id": f"{key[0]}:{key[1]}",
@@ -142,6 +179,8 @@ def build(data_dir: Path, now: datetime | None = None) -> dict:
                 "status": "candidate",  # -> proposed (AI) -> approved / rejected (person)
             })
     # Overlaps backed by non-news sources first, then more categories, then newest.
+    # 並び順: 裏付けのある分野が多い順 → 重なった分野が多い順 → 新しい週 → 国コード。
+    # Python の並べ替えは安定なので、優先度の低いキーから順に並べ替えている。
     candidates.sort(key=lambda c: c["country_iso3"])
     candidates.sort(key=lambda c: c["week"], reverse=True)
     candidates.sort(key=lambda c: (c["non_news_categories"], len(c["categories"])), reverse=True)
@@ -155,7 +194,10 @@ def build(data_dir: Path, now: datetime | None = None) -> dict:
 
 
 def _write(path: Path, doc: dict) -> None:
-    """One cell / candidate per line, like the event files (readable Git diffs)."""
+    """One cell / candidate per line, like the event files (readable Git diffs).
+
+    出来事のファイルと同じく 1 行 1 件で書き、Git の差分を読みやすくする。
+    """
     items_key = "cells" if "cells" in doc else "candidates"
     items = doc[items_key]
     head = {k: v for k, v in doc.items() if k != items_key}

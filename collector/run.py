@@ -7,6 +7,13 @@
 Each source runs on its own: one failing source never stops the others.
 With --strict the exit code is 1 if any source failed, so GitHub Actions
 marks the run red and emails the owner (our only monitoring).
+
+収集の入口。GitHub Actions のスケジュールから毎時・日次・週次で呼ばれる。
+- ソースごとに独立して動かす。1 つが失敗しても他は止めない。
+- --strict を付けると、失敗したソースがあれば終了コード 1 を返す。Actions の実行が
+  赤くなり、持ち主に GitHub からメールが届く(これが唯一の監視の仕組み)。
+- 実行の流れ: 保存済みデータの形式更新 → 各ソースの取得・保存 → status.json 更新
+  → 分析ファイル(data/analysis/)の作り直し。
 """
 
 from __future__ import annotations
@@ -29,11 +36,23 @@ from .sources import SOURCES
 
 @dataclass
 class Context:
+    """各ソースの fetch() に渡す設定。
+
+    gdelt_slices: 既定 4(= 1 時間分)は手元やテストで軽く試すための値。
+                  日次の本番は collect.yml で 96(= 24 時間分)を指定する。
+    lookback_hours: ReliefWeb を何時間さかのぼるか。日次実行に対して 26 時間と
+                  2 時間重ねて、実行時刻がずれても取りこぼさないようにする。
+    """
     gdelt_slices: int = 4         # 15-minute files; 96 = one day
     lookback_hours: int = 26      # ReliefWeb window, overlaps a day for safety
 
 
 def run_source(mod, ctx: Context) -> tuple[list[dict], dict]:
+    """1 つのソースを取得し、(レコード, 実行結果) を返す。例外は外に出さない。
+
+    実行結果には件数・分野別の内訳・最古と最新の日時などを入れ、status.json に
+    残す。ソースが「準備中」(SourceSkipped)なら失敗ではなくスキップとして記録する。
+    """
     started = time.monotonic()
     res = {"ok": False, "kind": mod.KIND, "cadence": mod.CADENCE, "count": 0, "error": None,
            "skipped": None}
@@ -41,6 +60,7 @@ def run_source(mod, ctx: Context) -> tuple[list[dict], dict]:
     try:
         records = mod.fetch(ctx)
         res["ok"] = True
+        # ソースが絞り込みの統計(捨てた行数など)を持っていれば一緒に記録する。
         if getattr(mod, "LAST_STATS", None):
             res["stats"] = dict(mod.LAST_STATS)
         res["count"] = len(records)
@@ -54,6 +74,7 @@ def run_source(mod, ctx: Context) -> tuple[list[dict], dict]:
     except SourceSkipped as e:
         res["skipped"] = str(e)
     except Exception as e:  # noqa: BLE001 - isolate every source
+        # どんなエラーでも記録して次のソースへ進む(1 つの失敗で全体を止めない)。
         res["error"] = f"{type(e).__name__}: {e}"[:500]
         traceback.print_exc()
     res["seconds"] = round(time.monotonic() - started, 1)
@@ -62,6 +83,7 @@ def run_source(mod, ctx: Context) -> tuple[list[dict], dict]:
 
 
 def summary_markdown(results: dict, dry_run: bool) -> str:
+    """実行結果を表にした Markdown を作る(Actions の実行画面の概要に表示される)。"""
     lines = [
         "## Collector run" + (" (dry run: nothing written)" if dry_run else ""),
         "",
@@ -83,6 +105,7 @@ def summary_markdown(results: dict, dry_run: bool) -> str:
 
 
 def main(argv=None) -> int:
+    """コマンドラインの入口。終了コード(0 = 正常、1 = --strict で失敗あり)を返す。"""
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     pick = ap.add_mutually_exclusive_group(required=True)
     pick.add_argument("--sources", help="comma separated: " + ",".join(SOURCES))
@@ -95,6 +118,7 @@ def main(argv=None) -> int:
     ap.add_argument("--lookback-hours", type=int, default=26)
     args = ap.parse_args(argv)
 
+    # どのソースを動かすか: 全部 / 頻度で選ぶ(スケジュール実行用)/ 名前で指定。
     if args.all:
         names = list(SOURCES)
     elif args.cadence:
@@ -108,6 +132,9 @@ def main(argv=None) -> int:
     ctx = Context(gdelt_slices=args.gdelt_slices, lookback_hours=args.lookback_hours)
     data_dir = Path(args.out)
     results = {}
+    # 取得の前に、保存済みファイルを最新の形式に更新し、重複や古いニュース由来の
+    # 出来事を整理する。こうしておけば形式を変えても手作業の移行が要らない。
+    # dry-run(取得の確認だけ)のときはファイルに触らない。
     if not args.dry_run:
         up = store.upgrade_all(data_dir)
         print(f"--- upgrade stored events: {up}", file=sys.stderr)
@@ -115,6 +142,7 @@ def main(argv=None) -> int:
         mod = SOURCES[name]
         print(f"--- {name}", file=sys.stderr)
         records, res = run_source(mod, ctx)
+        # 取得に成功したソースだけ保存する。失敗したソースの既存データは残る。
         if res["ok"] and not args.dry_run:
             if mod.KIND == "events":
                 res.update(store.merge_events(data_dir, name, records))
@@ -128,6 +156,8 @@ def main(argv=None) -> int:
         try:
             print(f"--- analysis: {analysis.build(data_dir)}", file=sys.stderr)
         except Exception:  # noqa: BLE001 - never lose the collected data over this
+            # 分析は付加的なもの。ここで失敗しても、集めたデータの保存は済んでいるので
+            # 実行全体は失敗にしない(ログには残す)。
             traceback.print_exc()
 
     md = summary_markdown(results, args.dry_run)
@@ -136,6 +166,7 @@ def main(argv=None) -> int:
         with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as fh:
             fh.write(md)
 
+    # スキップ(準備中)は失敗に数えない。
     failed = [n for n, r in results.items() if not r["ok"] and not r["skipped"]]
     return 1 if (failed and args.strict) else 0
 

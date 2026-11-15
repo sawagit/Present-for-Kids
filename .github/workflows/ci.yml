@@ -1,5 +1,8 @@
 # Tests on every push/PR, plus a live check that every source still answers.
 # The live check fetches and validates but writes nothing.
+#
+# プッシュと PR のたびに、テストと「全ソースが今も応答するか」の実取得確認を行う。
+# 実取得の確認は検証だけで、ファイルには何も書かない。
 name: ci
 
 on:
@@ -24,6 +27,7 @@ jobs:
 
   sources-live:
     # Fetch every source for real (GDELT: last hour only) and report counts.
+    # 全ソースを実際に取得する。GDELT は時間短縮のため直近 1 時間分(4 ファイル)だけ。
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:

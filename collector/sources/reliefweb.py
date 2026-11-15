@@ -7,6 +7,11 @@ the RELIEFWEB_APPNAME secret. Until then this source is skipped, not failed.
 
 We store title, metadata and link only, never the report body (copyright:
 each publishing organisation sets its own terms).
+
+ReliefWeb(国連 OCHA)の人道レポート。API は承認済みの appname が必須なので、
+Secret の RELIEFWEB_APPNAME が未登録の間は「失敗」ではなく「スキップ」にする。
+レポート本文は発行団体ごとに著作権の条件が違うため保存せず、タイトル・
+メタデータ・リンクだけを持つ。
 """
 
 from __future__ import annotations
@@ -23,10 +28,14 @@ KIND = "events"
 CADENCE = "daily"
 API_URL = "https://api.reliefweb.int/v2/reports?appname={appname}"
 PAGE = 500  # API maximum per call; enough for one day
+# 1 回で取れる上限。ReliefWeb の 1 日の新着はこれより少ないので 1 ページで足りる。
 
+# 地図・インフォグラフィックなどは「出来事の報告」ではないので除く。
 SKIP_FORMATS = {"Map", "Infographic", "Manual and Guideline", "Interactive"}
 
 # First matching rule wins. Disaster types are checked before themes.
+# 分野の判定ルール。上から順に見て最初に当たったものを使う。災害種別(疫病など)は
+# テーマより具体的なので先に見る。ここでの分類は大まかで、AI 段階で精緻にする。
 DISASTER_RULES = [({"Epidemic", "Insect Infestation"}, "public_health")]
 THEME_RULES = [
     ({"Health", "HIV/Aids"}, "public_health"),
@@ -36,14 +45,21 @@ THEME_RULES = [
     ({"Climate Change and Environment", "Disaster Management"}, "disaster_climate"),
     ({"Education"}, "culture_society"),
 ]
+# タイトルにこれらの語があれば「難民・移動」タグを付ける(分野を横断する視点のため)。
 DISPLACEMENT_WORDS = ("refugee", "displace", "idp", "migrant", "asylum", "returnee")
 
 
 def _names(items):
+    """[{"name": ...}, ...] から name の集合を取り出す。"""
     return {i.get("name") for i in (items or []) if i.get("name")}
 
 
 def categorize(themes: set, disaster_types: set) -> str:
+    """レポートのテーマと災害種別から 8 分野のどれかを決める。
+
+    判定の順: 疫病などの災害種別 → それ以外の災害は「災害・気候」→ テーマ。
+    どれにも当たらなければ人道状況の報告とみなして「人権」に入れる(AI 段階で見直す)。
+    """
     for keys, cat in DISASTER_RULES:
         if keys & disaster_types:
             return cat
@@ -56,12 +72,13 @@ def categorize(themes: set, disaster_types: set) -> str:
 
 
 def parse(doc: dict) -> list[dict]:
+    """API の応答を Event のリストに変換する(通信なし、テスト可能)。"""
     out = []
     for item in doc.get("data", []):
         f = item.get("fields") or {}
         formats = _names(f.get("format"))
         if formats and formats <= SKIP_FORMATS:
-            continue
+            continue  # 地図だけ・図表だけのものは除く(本文のあるレポートは残す)
         themes = _names(f.get("theme"))
         dtypes = _names(f.get("disaster_type"))
         title = f.get("title") or ""
@@ -70,6 +87,7 @@ def parse(doc: dict) -> list[dict]:
         tags = []
         if "Shelter and Non-Food Items" in themes or any(w in title.lower() for w in DISPLACEMENT_WORDS):
             tags.append("displacement")
+        # 復興・再建のテーマなら「改善」。改善の兆しも悪化と同じ重さで集める方針。
         direction = "improving" if "Recovery and Reconstruction" in themes else "neutral"
         date = (f.get("date") or {})
         try:
@@ -82,7 +100,7 @@ def parse(doc: dict) -> list[dict]:
                 updated_at=_norm(date.get("changed")),
                 title_en=title,
                 urls=[f.get("url_alias") or f.get("url")],
-                confidence="medium",
+                confidence="medium",  # 編集済みの二次情報(各団体の報告を集約したもの)
                 lat=loc.get("lat"),
                 lon=loc.get("lon"),
                 place=pc.get("name"),
@@ -104,6 +122,7 @@ def parse(doc: dict) -> list[dict]:
 
 
 def _norm(s):
+    """ReliefWeb の日時(タイムゾーン付き)を UTC の ISO 8601 にそろえる。"""
     if not s:
         return None
     # "2026-11-07T10:20:30+00:00"
@@ -111,6 +130,7 @@ def _norm(s):
 
 
 def query(since: datetime) -> dict:
+    """since 以降に作られたレポートを新しい順に取る検索条件を作る。"""
     return {
         "limit": PAGE,
         "sort": ["date.created:desc"],
@@ -123,11 +143,18 @@ def query(since: datetime) -> dict:
 
 
 def fetch(ctx) -> list[dict]:
+    """直近 lookback_hours 時間(既定 26 時間)のレポートを取得する。
+
+    日次実行に対して 26 時間と少し長めに取るのは、実行時刻のずれで取りこぼさない
+    ため。重なった分は同じ id なので保存時に上書きされ、重複しない。
+    """
     appname = os.environ.get("RELIEFWEB_APPNAME")
     if not appname:
         # The public website and its RSS feeds sit behind bot protection
         # (they answer automated clients with an empty HTTP 202), so the
         # approved API is the only route we use.
+        # 公開サイトや RSS はボット対策で空の応答を返すため使えない。
+        # 承認済み API だけが経路なので、未登録ならスキップする。
         raise http.SourceSkipped(
             "RELIEFWEB_APPNAME is not set. ReliefWeb only answers approved appnames: "
             "request one at https://apidoc.reliefweb.int/parameters#appname")

@@ -1,6 +1,9 @@
 """Offline tests: parse recorded/handmade source responses. No network needed.
 
 Run:  python -m unittest discover -s tests
+
+通信なしで動くテスト。記録しておいた応答や手作りのデータを使って、各ソースの
+変換・保存・分析が正しく動くかを確かめる。CI でプッシュのたびに実行される。
 """
 
 import csv
@@ -24,6 +27,8 @@ def load(name):
 
 
 class UsgsTest(unittest.TestCase):
+    """USGS の地震データが共通形式に正しく変換されるか(深刻度・信頼度・国の判定)。"""
+
     def test_parse(self):
         evs = usgs.parse(load("usgs.json"))
         self.assertEqual([e["id"] for e in evs], ["usgs:us7000abcd", "usgs:us7000abce"])
@@ -39,6 +44,8 @@ class UsgsTest(unittest.TestCase):
 
 
 class GdacsTest(unittest.TestCase):
+    """GDACS の災害警報の変換。日付が壊れた行は落とさずに飛ばせるか。"""
+
     def test_parse(self):
         evs = gdacs.parse(load("gdacs.json"))
         self.assertEqual(len(evs), 2)  # bad date skipped, not crashed
@@ -54,6 +61,8 @@ class GdacsTest(unittest.TestCase):
 
 
 class GdeltTest(unittest.TestCase):
+    """GDELT の絞り込み・重複のまとめ・古い出来事の除外・ID の安定性・国別の上限。"""
+
     def rows(self):
         text = (FIX / "gdelt_export.tsv").read_text(encoding="utf-8")
         return list(csv.reader(io.StringIO(text), delimiter="\t", quoting=csv.QUOTE_NONE))
@@ -108,6 +117,8 @@ class GdeltTest(unittest.TestCase):
 
 
 class ReliefwebTest(unittest.TestCase):
+    """ReliefWeb レポートの分野の判定と、難民・移動タグ。"""
+
     def test_parse(self):
         evs = reliefweb.parse(load("reliefweb.json"))
         self.assertEqual(len(evs), 2)  # map-only item dropped
@@ -131,6 +142,8 @@ class ReliefwebTest(unittest.TestCase):
 
 
 class ReliefwebSkipTest(unittest.TestCase):
+    """appname が未登録のとき、失敗ではなくスキップになるか。"""
+
     def test_skipped_without_appname_is_not_a_failure(self):
         with tempfile.TemporaryDirectory() as d, mock.patch.dict("os.environ", {}, clear=True):
             code = run.main(["--sources", "reliefweb", "--out", d, "--strict"])
@@ -140,6 +153,8 @@ class ReliefwebSkipTest(unittest.TestCase):
 
 
 class UnhcrTest(unittest.TestCase):
+    """UNHCR の統計の変換。"-"(データなし)を 0 と区別できるか。"""
+
     def test_parse(self):
         inds = unhcr.parse(load("unhcr.json")["items"], 2025)
         names = {i["indicator"]: i["value"] for i in inds}
@@ -151,6 +166,8 @@ class UnhcrTest(unittest.TestCase):
 
 
 class SchemaTest(unittest.TestCase):
+    """共通形式の約束(8 分野、出典 URL 必須)が守られるか。"""
+
     def test_all_categories_reachable_contract(self):
         self.assertEqual(len(CATEGORIES), 8)
 
@@ -162,6 +179,8 @@ class SchemaTest(unittest.TestCase):
 
 
 class StoreTest(unittest.TestCase):
+    """保存の upsert が何度実行しても同じ結果になり、日本語訳を失わないか。"""
+
     def test_merge_is_idempotent_and_keeps_translations(self):
         evs = usgs.parse(load("usgs.json"))
         with tempfile.TemporaryDirectory() as d:
@@ -177,6 +196,8 @@ class StoreTest(unittest.TestCase):
 
 
 class GeoTest(unittest.TestCase):
+    """国コード・地名から国と地域を正しく求められるか(海域は推測しないこと)。"""
+
     def test_lookups(self):
         self.assertEqual(geo.iso3_from_fips("UK"), "GBR")
         self.assertEqual(geo.iso3_from_fips("GZ"), "PSE")
@@ -194,6 +215,8 @@ class GeoTest(unittest.TestCase):
 
 
 class UpgradeTest(unittest.TestCase):
+    """古い形式(バージョン 1)の保存データが自動で更新され、重複がまとまるか。"""
+
     def v1(self, ev):
         """Turn a freshly parsed event back into how version 1 stored it."""
         ev = json.loads(json.dumps(ev))
@@ -234,6 +257,8 @@ class UpgradeTest(unittest.TestCase):
 
 
 class AnalysisTest(unittest.TestCase):
+    """国 × 週の集計、つながり候補、同じ地震の二重計上の防止。"""
+
     def test_grid_candidates_and_same_quake(self):
         from datetime import datetime, timezone
         quakes = usgs.parse(load("usgs.json"))
@@ -264,6 +289,8 @@ class AnalysisTest(unittest.TestCase):
 
 
 class RunTest(unittest.TestCase):
+    """1 つのソースが失敗しても他のソースの収集が続くか。"""
+
     def test_one_failing_source_does_not_stop_others(self):
         def boom(ctx):
             raise RuntimeError("down")
