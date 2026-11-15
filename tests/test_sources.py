@@ -71,6 +71,12 @@ class GdeltTest(unittest.TestCase):
         self.assertEqual(by_type["cameo_0871"]["direction"], "turning_point")
         self.assertEqual(evs[0]["type"], "cameo_190")             # ranked by articles
 
+    def test_old_dated_events_dropped(self):
+        rows = self.rows()
+        rows[0][1] = "20251107"  # same clash, but dated a year before it was seen
+        types = {e["type"]: e for e in gdelt.parse_rows(rows)}
+        self.assertEqual(types["cameo_190"]["severity"]["value"], 10)
+
     def test_zip_reader_and_lastupdate(self):
         buf = io.BytesIO()
         with zipfile.ZipFile(buf, "w") as z:

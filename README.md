@@ -55,5 +55,5 @@ python -m collector.run --cadence hourly        # usgs + gdacs を data/ に保�
 - `.github/workflows/ci.yml`: プッシュと PR ごとにテストと全ソースの取得検証 / tests + live fetch check on every push and PR
 - `.github/workflows/collect.yml`: 毎時・日次・週次で収集し `data/` をコミット。失敗したソースがあると実行が赤くなり、GitHub からメールが届きます / scheduled collection; a failed source turns the run red and GitHub emails the owner
 
-ReliefWeb は承認済みの `appname` がないと応答しません([申請フォーム](https://apidoc.reliefweb.int/parameters#appname))。承認されたらリポジトリの Secrets に `RELIEFWEB_APPNAME` として登録してください。それまで ReliefWeb は「skipped」として飛ばし、失敗扱いにはしません。
-ReliefWeb only answers approved appnames; store yours as the `RELIEFWEB_APPNAME` secret. Until then the source is skipped, not failed.
+ReliefWeb の API は承認済みの `appname` が必要です([申請フォーム](https://apidoc.reliefweb.int/parameters#appname))。承認されたらリポジトリの Secrets に `RELIEFWEB_APPNAME` として登録してください。それまで ReliefWeb は「skipped」として飛ばし、失敗扱いにはしません(公開サイトや RSS は自動アクセスを遮断しているため使いません)。
+ReliefWeb's API needs an approved `appname`; store it as the `RELIEFWEB_APPNAME` secret. Until then the source is skipped, not failed (the public site and RSS block automated clients).

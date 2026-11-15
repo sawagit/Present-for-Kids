@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import gzip
 import json
 import time
 import urllib.error
@@ -27,7 +28,15 @@ def get(url: str, *, timeout: int = 60, retries: int = 3, data: bytes | None = N
         req = urllib.request.Request(url, data=data, headers=hdrs)
         try:
             with urllib.request.urlopen(req, timeout=timeout) as resp:
-                return resp.read()
+                body = resp.read()
+                if resp.headers.get("Content-Encoding", "").lower() == "gzip":
+                    body = gzip.decompress(body)
+                if not body:
+                    # Say what came back instead of failing later on "no element found".
+                    raise FetchError(
+                        f"empty body from {url} (HTTP {resp.status}, "
+                        f"Content-Type={resp.headers.get('Content-Type')!r}, final URL={resp.url})")
+                return body
         except urllib.error.HTTPError as e:
             body = e.read()[:300].decode("utf-8", "replace")
             last = FetchError(f"HTTP {e.code} for {url}: {body}")

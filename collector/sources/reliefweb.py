@@ -125,6 +125,9 @@ def query(since: datetime) -> dict:
 def fetch(ctx) -> list[dict]:
     appname = os.environ.get("RELIEFWEB_APPNAME")
     if not appname:
+        # The public website and its RSS feeds sit behind bot protection
+        # (they answer automated clients with an empty HTTP 202), so the
+        # approved API is the only route we use.
         raise http.SourceSkipped(
             "RELIEFWEB_APPNAME is not set. ReliefWeb only answers approved appnames: "
             "request one at https://apidoc.reliefweb.int/parameters#appname")
