@@ -1,0 +1,48 @@
+# Publish the site (site/ + data/) to GitHub Pages.
+# Runs after every collection run, so the map shows the newest data, and on
+# pushes to main that change the site. (Commits made by the collect workflow
+# do not trigger "push" workflows, hence workflow_run.)
+#
+# One-time setup: Settings > Pages > Build and deployment > Source: "GitHub Actions".
+name: pages
+
+on:
+  push:
+    branches: [main]
+    paths: ["site/**", "scripts/build_site.py", ".github/workflows/pages.yml"]
+  workflow_run:
+    workflows: [collect]
+    types: [completed]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Build
+        run: python scripts/build_site.py --out _site
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+      - id: deployment
+        uses: actions/deploy-pages@v4
