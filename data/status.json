@@ -23,31 +23,42 @@
   },
   "gdelt": {
     "by_category": {
-      "conflict_security": 109,
-      "culture_society": 7,
-      "economy_inequality": 53,
-      "human_rights": 62,
-      "politics_governance": 69
+      "conflict_security": 129,
+      "culture_society": 9,
+      "economy_inequality": 41,
+      "human_rights": 56,
+      "politics_governance": 65
     },
     "by_direction": {
-      "improving": 122,
-      "turning_point": 4,
-      "worsening": 174
+      "improving": 106,
+      "turning_point": 6,
+      "worsening": 188
     },
     "cadence": "daily",
     "count": 300,
     "error": null,
-    "finished_at": "2026-11-14T23:24:38Z",
+    "finished_at": "2026-11-15T08:24:07Z",
     "kind": "events",
-    "last_success": "2026-11-14T23:24:38Z",
-    "new": 300,
-    "newest": "2026-11-14T00:00:00Z",
+    "last_success": "2026-11-15T08:24:07Z",
+    "new": 153,
+    "newest": "2026-11-15T00:00:00Z",
     "ok": true,
-    "oldest": "2025-11-14T00:00:00Z",
-    "seconds": 5.8,
+    "oldest": "2026-11-14T00:00:00Z",
+    "seconds": 2.5,
     "skipped": null,
-    "updated": 0,
+    "updated": 53,
     "with_coords": 300
+  },
+  "reliefweb": {
+    "cadence": "daily",
+    "count": 0,
+    "error": null,
+    "finished_at": "2026-11-15T08:24:08Z",
+    "kind": "events",
+    "last_success": null,
+    "ok": false,
+    "seconds": 0.0,
+    "skipped": "RELIEFWEB_APPNAME is not set. ReliefWeb only answers approved appnames: request one at https://apidoc.reliefweb.int/parameters#appname"
   },
   "unhcr": {
     "cadence": "weekly",
