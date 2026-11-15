@@ -3,8 +3,7 @@
 API v2: https://apidoc.reliefweb.int/
 ReliefWeb only answers requests with an approved `appname` (request form:
 https://apidoc.reliefweb.int/parameters#appname). Put the approved name in
-the RELIEFWEB_APPNAME secret. Until then we read the public RSS feed, which
-needs no key but has less metadata (see parse_rss).
+the RELIEFWEB_APPNAME secret. Until then this source is skipped, not failed.
 
 We store title, metadata and link only, never the report body (copyright:
 each publishing organisation sets its own terms).
@@ -123,79 +122,14 @@ def query(since: datetime) -> dict:
     }
 
 
-# --- RSS fallback -----------------------------------------------------------
-# Used while no approved appname is configured. The public RSS feed needs no
-# key but carries less metadata, so the category comes from title keywords
-# and the country from the report URL (/report/<country>/<title>).
-RSS_URL = "https://reliefweb.int/updates/rss.xml"
-KEYWORD_RULES = [
-    (("cholera", "epidemic", "outbreak", "disease", "health", "mpox", "measles", "dengue", "malaria"), "public_health"),
-    (("flood", "earthquake", "cyclone", "storm", "drought", "typhoon", "hurricane", "volcan", "landslide", "wildfire", "heat", "el niño", "la niña", "climate"), "disaster_climate"),
-    (("food", "hunger", "famine", "ipc", "nutrition", "price", "market", "livelihood", "cash", "funding", "appeal", "economic"), "economy_inequality"),
-    (("attack", "conflict", "violence", "clash", "armed", "military", "ceasefire", "hostilities", "mine", "airstrike", "shelling"), "conflict_security"),
-    (("election", "governance", "government", "parliament"), "politics_governance"),
-    (("school", "education", "children", "gender", "women"), "culture_society"),
-]
-
-
-def categorize_text(title: str) -> str:
-    t = title.lower()
-    for words, cat in KEYWORD_RULES:
-        if any(w in t for w in words):
-            return cat
-    return "human_rights"
-
-
-def country_from_url(url: str):
-    # https://reliefweb.int/report/democratic-republic-congo/some-title
-    parts = url.split("/")
-    if len(parts) > 4 and parts[3] == "report" and parts[4] != "world":
-        return parts[4].replace("-", " ").title()
-    return None
-
-
-def parse_rss(xml_bytes: bytes) -> list[dict]:
-    import xml.etree.ElementTree as ET
-    from email.utils import parsedate_to_datetime
-
-    try:
-        root = ET.fromstring(xml_bytes)
-    except ET.ParseError as e:
-        raise http.FetchError(f"RSS is not valid XML ({e}); starts with {xml_bytes[:200]!r}") from None
-    out = []
-    for item in root.iter("item"):
-        title = (item.findtext("title") or "").strip()
-        link = (item.findtext("link") or "").strip()
-        guid = (item.findtext("guid") or link).strip()
-        node_id = guid.rstrip("/").rsplit("/", 1)[-1]
-        cats = sorted({(c.text or "").strip() for c in item.findall("category") if c.text})
-        pub = item.findtext("pubDate")
-        tags = ["displacement"] if any(w in title.lower() for w in DISPLACEMENT_WORDS) else []
-        try:
-            out.append(make_event(
-                source=NAME,
-                source_id=node_id,
-                category=categorize_text(title),
-                type_="report:rss",
-                occurred_at=iso_utc(parsedate_to_datetime(pub)) if pub else None,
-                title_en=title,
-                urls=[link],
-                confidence="medium",
-                place=country_from_url(link),
-                direction="improving" if "recovery" in title.lower() else "neutral",
-                tags=tags,
-                # The description (report body) is deliberately not stored.
-                attrs={"rss_categories": cats, "via": "rss"},
-            ))
-        except (ValueError, TypeError) as e:
-            print(f"[reliefweb] skip: {e}", file=sys.stderr)
-    return out
-
-
 def fetch(ctx) -> list[dict]:
     appname = os.environ.get("RELIEFWEB_APPNAME")
     if not appname:
-        print("[reliefweb] RELIEFWEB_APPNAME not set: using the public RSS feed", file=sys.stderr)
-        return parse_rss(http.get(RSS_URL, headers={"Accept": "application/rss+xml, application/xml"}))
+        # The public website and its RSS feeds sit behind bot protection
+        # (they answer automated clients with an empty HTTP 202), so the
+        # approved API is the only route we use.
+        raise http.SourceSkipped(
+            "RELIEFWEB_APPNAME is not set. ReliefWeb only answers approved appnames: "
+            "request one at https://apidoc.reliefweb.int/parameters#appname")
     since = datetime.now(timezone.utc) - timedelta(hours=ctx.lookback_hours)
     return parse(http.post_json(API_URL.format(appname=appname), query(since)))

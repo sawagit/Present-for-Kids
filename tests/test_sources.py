@@ -111,26 +111,13 @@ class ReliefwebTest(unittest.TestCase):
         self.assertEqual(q["filter"]["value"]["from"], "2026-11-07T00:00:00+00:00")
 
 
-class ReliefwebRssTest(unittest.TestCase):
-    def test_parse_rss(self):
-        evs = reliefweb.parse_rss((FIX / "reliefweb_rss.xml").read_bytes())
-        self.assertEqual(len(evs), 2)  # item without date skipped
-        chol, refu = evs
-        self.assertEqual(chol["id"], "reliefweb:4100010")
-        self.assertEqual(chol["category"], "public_health")
-        self.assertEqual(chol["location"]["place"], "Sudan")
-        self.assertEqual(chol["occurred_at"], "2026-11-14T10:20:30Z")
-        self.assertNotIn("body", json.dumps(chol))  # description never stored
-        self.assertEqual(refu["tags"], ["displacement"])
-        self.assertEqual(refu["location"]["place"], "Chad")
-
-    def test_rss_used_without_appname(self):
-        raw = (FIX / "reliefweb_rss.xml").read_bytes()
-        with mock.patch.dict("os.environ", {}, clear=True), \
-                mock.patch.object(reliefweb.http, "get", return_value=raw) as get:
-            evs = reliefweb.fetch(run.Context())
-        self.assertEqual(get.call_args.args, (reliefweb.RSS_URL,))
-        self.assertEqual(len(evs), 2)
+class ReliefwebSkipTest(unittest.TestCase):
+    def test_skipped_without_appname_is_not_a_failure(self):
+        with tempfile.TemporaryDirectory() as d, mock.patch.dict("os.environ", {}, clear=True):
+            code = run.main(["--sources", "reliefweb", "--out", d, "--strict"])
+            status = json.loads((Path(d) / "status.json").read_text())
+        self.assertEqual(code, 0)
+        self.assertIn("RELIEFWEB_APPNAME", status["reliefweb"]["skipped"])
 
 
 class UnhcrTest(unittest.TestCase):
