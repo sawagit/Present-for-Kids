@@ -30,7 +30,12 @@ data/
   events/<source>/<YYYY-MM>.json      # Event の配列(1 行 1 件)
   indicators/<source>/<period>.json   # Indicator の配列
   status.json                         # ソースごとの最終実行結果
+  analysis/country_weeks.json         # 国 × 週 × 分野の集計(地図の色分け・タイムライン用)
+  analysis/link_candidates.json       # 同じ国・同じ週に複数分野の危機が重なった「つながり候補」
 ```
+
+`analysis/` は収集のたびに作り直します。つながり候補は「同じ場所・同じ時期に起きた」というだけで、因果を意味しません。AI 段階が根拠つきの因果リンク案を出し、人が承認してから公開します。USGS と GDACS が同じ地震を報じた場合は 1 件として数えます(`same_event`)。
+`analysis/` is rebuilt on every run. A link candidate only means "same country, same week, different categories", not a cause; the AI stage proposes cause-effect links with evidence and a person approves them before publication.
 
 Event の主なフィールド / main Event fields (see `collector/schema.py`):
 
@@ -38,7 +43,11 @@ Event の主なフィールド / main Event fields (see `collector/schema.py`):
 - `direction`: `worsening` / `improving` / `turning_point` / `neutral`(改善も同じ重さで集める / improvements are collected too)
 - `title`, `summary`: `{"en": ..., "ja": ...}`(日本語は AI 段階で埋める / Japanese is filled by the AI stage)
 - `confidence`: `high`(一次機関)/ `medium`(編集済み二次)/ `low`(報道からの機械抽出)
-- `location`, `severity`, `urls`(出典は必須 / a source link is required), `attrs`
+- `location`: `lat`, `lon`(約 1 km に丸め)、`place`、`country_iso3`、`region` / `subregion`(国連 M49 の地域名、例 `Africa` / `Eastern Africa`)。全ソースで ISO3 にそろえるので、ソースをまたいで国・地域で結びつけられます / every source is resolved to ISO3 + UN M49 region so events can be joined across sources
+- `severity`, `urls`(出典は必須 / a source link is required), `attrs`
+- `schema`: 形式のバージョン。2 で `region` / `subregion` を追加し、GDELT の `id` を「日付・種類・場所」から作る安定した値に変更(日次の再取得で重複しない)。古いファイルは次の収集時に自動で更新されます / version 2 adds region fields and stable GDELT ids; stored files are upgraded automatically on the next run
+
+国と地域の対応表は `collector/countries.json`(ISO 3166、GDELT が使う FIPS 10-4、国連 M49 地域、CLDR の日英国名)。`tools/build_countries.py` で再生成します。
 
 ## 動かし方 / Running locally
 
