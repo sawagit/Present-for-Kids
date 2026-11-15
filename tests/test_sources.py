@@ -129,7 +129,7 @@ class ReliefwebRssTest(unittest.TestCase):
         with mock.patch.dict("os.environ", {}, clear=True), \
                 mock.patch.object(reliefweb.http, "get", return_value=raw) as get:
             evs = reliefweb.fetch(run.Context())
-        get.assert_called_once_with(reliefweb.RSS_URL)
+        self.assertEqual(get.call_args.args, (reliefweb.RSS_URL,))
         self.assertEqual(len(evs), 2)
 
 

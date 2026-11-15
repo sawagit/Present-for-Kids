@@ -158,7 +158,10 @@ def parse_rss(xml_bytes: bytes) -> list[dict]:
     import xml.etree.ElementTree as ET
     from email.utils import parsedate_to_datetime
 
-    root = ET.fromstring(xml_bytes)
+    try:
+        root = ET.fromstring(xml_bytes)
+    except ET.ParseError as e:
+        raise http.FetchError(f"RSS is not valid XML ({e}); starts with {xml_bytes[:200]!r}") from None
     out = []
     for item in root.iter("item"):
         title = (item.findtext("title") or "").strip()
@@ -193,6 +196,6 @@ def fetch(ctx) -> list[dict]:
     appname = os.environ.get("RELIEFWEB_APPNAME")
     if not appname:
         print("[reliefweb] RELIEFWEB_APPNAME not set: using the public RSS feed", file=sys.stderr)
-        return parse_rss(http.get(RSS_URL))
+        return parse_rss(http.get(RSS_URL, headers={"Accept": "application/rss+xml, application/xml"}))
     since = datetime.now(timezone.utc) - timedelta(hours=ctx.lookback_hours)
     return parse(http.post_json(API_URL.format(appname=appname), query(since)))
