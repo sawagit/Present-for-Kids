@@ -9,16 +9,16 @@
     "cadence": "hourly",
     "count": 100,
     "error": null,
-    "finished_at": "2026-11-15T20:25:24Z",
+    "finished_at": "2026-11-16T01:06:26Z",
     "kind": "events",
-    "last_success": "2026-11-15T20:25:24Z",
-    "new": 20,
-    "newest": "2026-11-15T17:48:36Z",
+    "last_success": "2026-11-16T01:06:26Z",
+    "new": 8,
+    "newest": "2026-11-15T22:38:22Z",
     "ok": true,
     "oldest": "2026-10-07T01:00:00Z",
-    "seconds": 1.4,
+    "seconds": 1.5,
     "skipped": null,
-    "updated": 77,
+    "updated": 84,
     "with_coords": 100
   },
   "gdelt": {
@@ -76,24 +76,24 @@
   },
   "usgs": {
     "by_category": {
-      "disaster_climate": 9
+      "disaster_climate": 10
     },
     "by_direction": {
-      "worsening": 9
+      "worsening": 10
     },
     "cadence": "hourly",
-    "count": 9,
+    "count": 10,
     "error": null,
-    "finished_at": "2026-11-15T20:25:23Z",
+    "finished_at": "2026-11-16T01:06:25Z",
     "kind": "events",
-    "last_success": "2026-11-15T20:25:23Z",
+    "last_success": "2026-11-16T01:06:25Z",
     "new": 3,
-    "newest": "2026-11-15T17:48:36Z",
+    "newest": "2026-11-15T22:38:19Z",
     "ok": true,
-    "oldest": "2026-11-14T21:24:20Z",
+    "oldest": "2026-11-15T03:59:59Z",
     "seconds": 0.1,
     "skipped": null,
     "updated": 1,
-    "with_coords": 9
+    "with_coords": 10
   }
 }
