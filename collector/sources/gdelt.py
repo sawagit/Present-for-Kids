@@ -40,6 +40,7 @@ import hashlib
 import io
 import os
 import sys
+import time
 import zipfile
 from datetime import datetime, timedelta, timezone
 
@@ -291,17 +292,24 @@ def latest_slice(lastupdate_text: str) -> datetime:
     raise ValueError("no export file in lastupdate.txt")
 
 
-def fetch(ctx) -> list[dict]:
-    """Download the latest `ctx.gdelt_slices` 15-minute files (96 = one day).
+# 全スライスが取れなかったときに、時間をおいて最初からやり直す回数と待ち時間。
+# 2026-11-15 の CI で、lastupdate.txt が示した最新ファイルを含む直近 4 個が全部
+# HTTP 404 になり、40 秒後の再実行では取れた(GDELT 側の更新途中の一時的な状態)。
+# 404 は http.get ではやり直さない(4xx は普通は直らない)ので、ここでまとめて待つ。
+# 30 秒 × 2 回なら、更新が落ち着くのに十分で、日次の収集も CI もほとんど遅くならない。
+ROUND_RETRIES = 2
+ROUND_WAIT_SECONDS = 30
 
-    最新から過去へ 15 分ずつさかのぼって、ctx.gdelt_slices 個のファイルを取る
-    (日次実行では 96 個 = 24 時間分)。GDELT はときどきファイルを欠かすので、
-    欠けたものは飛ばし、1 つも取れなかったときだけ失敗にする。
+
+def _fetch_round(n_slices: int):
+    """lastupdate.txt を読み、最新から n_slices 個のファイルを取って (rows, ok, missing, dropped) を返す。
+
+    欠けたスライスは飛ばす(GDELT はときどきファイルを欠かすため)。
     """
     newest = latest_slice(http.get(LASTUPDATE_URL).decode("utf-8"))
     rows, ok, missing = [], 0, 0
     dropped: dict[str, int] = {}
-    for i in range(ctx.gdelt_slices):
+    for i in range(n_slices):
         ts = (newest - timedelta(minutes=15 * i)).strftime("%Y%m%d%H%M%S")
         try:
             raw = http.get(SLICE_URL.format(ts=ts), retries=2)
@@ -316,6 +324,27 @@ def fetch(ctx) -> list[dict]:
             else:
                 dropped[why] = dropped.get(why, 0) + 1
         ok += 1
+    return rows, ok, missing, dropped
+
+
+def fetch(ctx, *, sleep=time.sleep) -> list[dict]:
+    """Download the latest `ctx.gdelt_slices` 15-minute files (96 = one day).
+
+    最新から過去へ 15 分ずつさかのぼって、ctx.gdelt_slices 個のファイルを取る
+    (日次実行では 96 個 = 24 時間分)。GDELT はときどきファイルを欠かすので、
+    欠けたものは飛ばす。1 つも取れなかったときは GDELT 側の一時的な障害とみて
+    ROUND_WAIT_SECONDS 秒待ってやり直し、ROUND_RETRIES 回やり直しても
+    取れなかったときだけ失敗にする。sleep はテストで待ち時間を飛ばすための差し替え口。
+    """
+    for attempt in range(ROUND_RETRIES + 1):
+        rows, ok, missing, dropped = _fetch_round(ctx.gdelt_slices)
+        if ok > 0:
+            break
+        # 1 つも取れなかった: 最後の試行でなければ待ってから lastupdate.txt を読み直す。
+        if attempt < ROUND_RETRIES:
+            print(f"[gdelt] no slice available, retrying in {ROUND_WAIT_SECONDS}s "
+                  f"({attempt + 1}/{ROUND_RETRIES})", file=sys.stderr)
+            sleep(ROUND_WAIT_SECONDS)
     if ok == 0:
         raise http.FetchError("no GDELT slice could be downloaded")
     print(f"[gdelt] slices ok={ok} missing={missing} kept_rows={len(rows)} dropped={dropped}",

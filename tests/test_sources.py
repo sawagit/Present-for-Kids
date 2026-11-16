@@ -115,6 +115,48 @@ class GdeltTest(unittest.TestCase):
               "456 def http://data.gdeltproject.org/gdeltv2/20261108081500.mentions.CSV.zip\n")
         self.assertEqual(gdelt.latest_slice(lu).strftime("%Y%m%d%H%M"), "202611080815")
 
+    def fake_get(self, slice_ok):
+        """lastupdate.txt と zip を返す偽の http.get。slice_ok() が False の間は全スライス 404。"""
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w") as z:
+            z.writestr("x.export.CSV", (FIX / "gdelt_export.tsv").read_text())
+        lu = b"1 a http://data.gdeltproject.org/gdeltv2/20261108081500.export.CSV.zip\n"
+
+        def get(url, **kw):
+            if url == gdelt.LASTUPDATE_URL:
+                return lu
+            if not slice_ok():
+                raise gdelt.http.FetchError(f"HTTP 404 for {url}: ")
+            return buf.getvalue()
+        return get
+
+    def test_fetch_retries_when_every_slice_is_missing(self):
+        # 2026-11-15 の CI 失敗の再現: 1 回目は全スライス 404、待ってやり直すと取れる。
+        calls = {"round": 0}
+        waits = []
+
+        def slice_ok():
+            return calls["round"] >= 1
+
+        def sleep(sec):
+            waits.append(sec)
+            calls["round"] += 1
+
+        ctx = mock.Mock(gdelt_slices=2)
+        with mock.patch.object(gdelt.http, "get", self.fake_get(slice_ok)):
+            evs = gdelt.fetch(ctx, sleep=sleep)
+        self.assertEqual(waits, [gdelt.ROUND_WAIT_SECONDS])
+        self.assertEqual(gdelt.LAST_STATS["slices_ok"], 2)
+        self.assertIsInstance(evs, list)
+
+    def test_fetch_fails_after_all_retries(self):
+        waits = []
+        ctx = mock.Mock(gdelt_slices=2)
+        with mock.patch.object(gdelt.http, "get", self.fake_get(lambda: False)):
+            with self.assertRaises(gdelt.http.FetchError):
+                gdelt.fetch(ctx, sleep=waits.append)
+        self.assertEqual(len(waits), gdelt.ROUND_RETRIES)
+
 
 class ReliefwebTest(unittest.TestCase):
     """ReliefWeb レポートの分野の判定と、難民・移動タグ。"""
