@@ -76,14 +76,14 @@
     "cadence": "weekly",
     "count": 1257,
     "error": null,
-    "finished_at": "2026-11-14T23:24:39Z",
+    "finished_at": "2026-11-16T11:48:53Z",
     "kind": "indicators",
-    "last_success": "2026-11-14T23:24:39Z",
+    "last_success": "2026-11-16T11:48:53Z",
     "ok": true,
     "periods": [
       "2025"
     ],
-    "seconds": 0.9,
+    "seconds": 1.2,
     "skipped": null
   },
   "usgs": {
