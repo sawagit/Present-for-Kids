@@ -23,49 +23,49 @@
   },
   "gdelt": {
     "by_category": {
-      "conflict_security": 94,
-      "culture_society": 8,
-      "economy_inequality": 45,
-      "human_rights": 78,
-      "politics_governance": 75
+      "conflict_security": 118,
+      "culture_society": 7,
+      "economy_inequality": 35,
+      "human_rights": 77,
+      "politics_governance": 63
     },
     "by_direction": {
-      "improving": 120,
+      "improving": 98,
       "turning_point": 3,
-      "worsening": 177
+      "worsening": 199
     },
     "cadence": "daily",
     "count": 300,
     "error": null,
-    "finished_at": "2026-11-17T09:42:26Z",
+    "finished_at": "2026-11-18T09:02:22Z",
     "kind": "events",
-    "last_success": "2026-11-17T09:42:26Z",
-    "new": 270,
-    "newest": "2026-11-17T00:00:00Z",
+    "last_success": "2026-11-18T09:02:22Z",
+    "new": 271,
+    "newest": "2026-11-18T00:00:00Z",
     "ok": true,
-    "oldest": "2026-11-16T00:00:00Z",
-    "seconds": 17.1,
+    "oldest": "2026-11-17T00:00:00Z",
+    "seconds": 3.4,
     "skipped": null,
     "stats": {
       "dropped_rows": {
-        "few_articles": 7400,
-        "no_location": 768,
-        "not_root": 57892,
-        "old_event": 110,
-        "other_code": 50551
+        "few_articles": 8008,
+        "no_location": 706,
+        "not_root": 60480,
+        "old_event": 79,
+        "other_code": 52375
       },
-      "kept_rows": 5263,
-      "slices_missing": 0,
-      "slices_ok": 96
+      "kept_rows": 5613,
+      "slices_missing": 1,
+      "slices_ok": 95
     },
-    "updated": 30,
+    "updated": 28,
     "with_coords": 300
   },
   "reliefweb": {
     "cadence": "daily",
     "count": 0,
     "error": null,
-    "finished_at": "2026-11-17T09:42:26Z",
+    "finished_at": "2026-11-18T09:02:22Z",
     "kind": "events",
     "last_success": null,
     "ok": false,
